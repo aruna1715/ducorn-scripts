@@ -102,11 +102,12 @@ def cmd_approve(say, approval_id_str):
                 from ducorn_db import get_conn
                 with get_conn() as _conn:
                     _cur = _conn.cursor()
-                    _cur.execute("SELECT build_engine, coder FROM pipeline_runs WHERE slug=%s", (topic,))
+                    _cur.execute("SELECT build_engine, coder, complexity FROM pipeline_runs WHERE slug=%s", (topic,))
                     _row = _cur.fetchone()
                     if _row:
                         _db_engine = _row[0] or "fast"
                         _db_coder = _row[1] or "crewai"
+                        _db_complexity = _row[2] or "simple"
             except Exception as _e:
                 print(f"DB read failed: {_e}")
             subprocess.Popen(
@@ -114,6 +115,7 @@ def cmd_approve(say, approval_id_str):
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "gate_1",
                  "--engine", _db_engine,
+                 "--complexity", _db_complexity,
                  "--coder", _db_coder],
                 stdout=open(log_path, 'a'),
                 stderr=subprocess.STDOUT,
@@ -137,11 +139,12 @@ def cmd_approve(say, approval_id_str):
                 from ducorn_db import get_conn
                 with get_conn() as _conn:
                     _cur = _conn.cursor()
-                    _cur.execute("SELECT build_engine, coder FROM pipeline_runs WHERE slug=%s", (topic,))
+                    _cur.execute("SELECT build_engine, coder, complexity FROM pipeline_runs WHERE slug=%s", (topic,))
                     _row = _cur.fetchone()
                     if _row:
                         _db_engine = _row[0] or "fast"
                         _db_coder = _row[1] or "crewai"
+                        _db_complexity = _row[2] or "simple"
             except Exception as _e:
                 print(f"DB read failed: {_e}")
             subprocess.Popen(
@@ -149,6 +152,7 @@ def cmd_approve(say, approval_id_str):
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "build",
                  "--engine", _db_engine,
+                 "--complexity", _db_complexity,
                  "--coder", _db_coder],
                 stdout=open(log_path, 'a'),
                 stderr=subprocess.STDOUT,
