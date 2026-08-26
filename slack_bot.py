@@ -111,9 +111,9 @@ def cmd_approve(say, approval_id_str):
             except Exception as _e:
                 print(f"DB read failed: {_e}")
             subprocess.Popen(
-                ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
-                 topic, "--phase", "gate_1",
+                 topic, "--phase", "build",
                  "--engine", _db_engine,
                  "--complexity", _db_complexity,
                  "--coder", _db_coder],
@@ -148,7 +148,7 @@ def cmd_approve(say, approval_id_str):
             except Exception as _e:
                 print(f"DB read failed: {_e}")
             subprocess.Popen(
-                ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "build",
                  "--engine", _db_engine,
@@ -167,7 +167,7 @@ def cmd_approve(say, approval_id_str):
             say(f"🚀 *ATLAS: Starting launch phase for `{topic}`...*")
             log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
             subprocess.Popen(
-                ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "launch"],
                 stdout=open(log_path, 'w'),
@@ -188,7 +188,7 @@ def cmd_approve(say, approval_id_str):
                 "OPENAI_BASE_URL": "http://localhost:4001/v1",
                 "CREWAI_TOOLS_ALLOW_UNSAFE_PATHS": "true"}
             subprocess.Popen(
-                ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "deploy"],
                 stdout=open(log_path, 'a'),
@@ -246,7 +246,7 @@ def cmd_reject(say, approval_id_str):
             except Exception as _e:
                 print(f"DB read failed: {_e}")
             subprocess.Popen(
-                ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
                  "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
                  topic, "--phase", "research",
                  "--engine", _db_engine,
@@ -384,7 +384,7 @@ def cmd_confirm(say, topic):
     
     log_path = f"/Users/ducorn/DC/logs/flow_{topic.replace(' ', '_')}.log"
     subprocess.Popen(
-        ["/Users/ducorn/DC/ducorn/.venv/bin/python",
+        ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
          "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
          topic, "--phase", "research"],
         stdout=open(log_path, 'w'),

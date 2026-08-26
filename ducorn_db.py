@@ -148,7 +148,7 @@ def get_pending_approvals():
     with get_conn() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT id, requested_by, title, description, document_path, created_at
+            SELECT id, requested_by, title, description, document_path, created_at, status
             FROM approval_requests
             WHERE status = 'pending'
             ORDER BY created_at ASC

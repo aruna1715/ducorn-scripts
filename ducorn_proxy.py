@@ -13,66 +13,77 @@ app = FastAPI()
 LITELLM_URL = "http://localhost:4000"
 
 # ── Routing table ──────────────────────────────────────────
+import os
+
+# One local model for test runs — loading a second evicts the first and costs
+# minutes per swap on a 48GB box.
+LOCAL_TEST_MODEL = os.environ.get("DUCORN_LOCAL_MODEL", "local-fast")
+
+KNOWN_MODELS = {"claude-sonnet", "local-fast",
+                "deepseek-chat", "deepseek-reasoner"}
+
 AGENT_ROUTES = {
-    "echo":  "local-heavy",
-    "cleo":  "local-heavy",
-    "nova":  "deepseek-chat",
-    "aria":  "deepseek-chat",
-    "opus":  "deepseek-chat",
-    "atlas": "claude-sonnet",
-    "sage":  "claude-sonnet",
-    "rex":   "claude-sonnet",
-    "iris":  "claude-sonnet",
+    "echo":  "local-fast",   "cleo":  "local-fast",
+    "nova":  "deepseek-chat","aria":  "deepseek-chat", "opus": "deepseek-chat",
+    "atlas": "claude-sonnet","sage":  "claude-sonnet",
+    "rex":   "claude-sonnet","iris":  "claude-sonnet",
 }
-LOCAL_ONLY = {"echo", "cleo"}
+
+LOCAL_HEAVY_AGENTS = {"atlas", "sage", "rex", "iris"}
 COMPRESSION_KEYWORDS = ["summarize","summarise","compress","shorten","tldr","brief","condense"]
 SHORT_THRESHOLD = 30
 
-def classify(messages):
-    prompt = " ".join(
-        m.get("content","") for m in messages
-        if isinstance(m.get("content"), str)
-    ).lower()
+
+def _local_only() -> bool:
+    """Read per-request, not at import — the flow sets this per run."""
+    return os.environ.get("DUCORN_LOCAL_ONLY", "").lower() in ("1", "true", "yes")
+
+
+def detect_agent(messages):
+    system_msg = next((m["content"] for m in messages
+                       if m.get("role") == "system" and isinstance(m.get("content"), str)), "").lower()
+    return next((a for a in AGENT_ROUTES if a in system_msg), None)
+
+
+def classify(messages, agent_id):
+    """Fallback routing for calls that named no model."""
+    prompt = " ".join(m.get("content", "") for m in messages
+                      if isinstance(m.get("content"), str)).lower()
     token_count = len(prompt.split())
-    system_msg = next(
-        (m["content"] for m in messages if m.get("role") == "system"), ""
-    ).lower()
-    agent_id = next((a for a in AGENT_ROUTES if a in system_msg), None)
+    if agent_id:
+        return AGENT_ROUTES[agent_id], f"agent={agent_id} routing table"
+    if token_count < SHORT_THRESHOLD:
+        return "local-fast", f"unknown agent, short prompt ({token_count} tokens)"
+    if any(kw in prompt for kw in COMPRESSION_KEYWORDS):
+        return "local-fast", "compression keyword"
+    return "claude-sonnet", "default fallback"
 
-    # Rule 1: Local-only agents — never route to paid APIs
-    if agent_id in LOCAL_ONLY:
-        chosen_model = "local-heavy"
-        reason = f"agent={agent_id} local-only"
 
-    # Rule 2: Known agent — always use routing table (ignore token count)
-    elif agent_id:
-        chosen_model = AGENT_ROUTES[agent_id]
-        reason = f"agent={agent_id} routing table"
+def choose_model(body, messages):
+    """Precedence: test-run lock > the model the caller asked for > classifier.
 
-    # Rule 3: Unknown agent — short prompt goes local-fast
-    elif token_count < SHORT_THRESHOLD:
-        chosen_model = "local-fast"
-        reason = f"unknown agent short prompt ({token_count} tokens)"
+    The dashboard model switcher is the single source of truth for production
+    runs; it reaches us as body["model"]. We honour it rather than overriding it.
+    """
+    agent_id = detect_agent(messages)
 
-    # Rule 4: Compression keywords
-    elif any(kw in prompt for kw in COMPRESSION_KEYWORDS):
-        chosen_model = "local-fast"
-        reason = "compression keyword"
+    if _local_only():
+        return LOCAL_TEST_MODEL, "test run — local only"
 
-    # Rule 5: Default fallback
-    else:
-        chosen_model = "claude-sonnet"
-        reason = "default fallback"
+    requested = body.get("model")
+    if requested in KNOWN_MODELS:
+        return requested, "model switcher"
 
-    print(f"[DuCorn Router] agent={agent_id or 'unknown'} | tokens={token_count} | {reason} | → {chosen_model}")
-    return chosen_model
-
+    return classify(messages, agent_id)
+    
 @app.post("/v1/chat/completions")
 async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
-    body["model"] = classify(messages)
-
+    chosen, reason = choose_model(body, messages)
+    body["model"] = chosen
+    print(f"[DuCorn Router] agent={detect_agent(messages) or 'unknown'} | {reason} | → {chosen}")
+    
     headers = dict(request.headers)
     headers.pop("content-length", None)
     headers.pop("host", None)
