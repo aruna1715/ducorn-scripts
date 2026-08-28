@@ -81,12 +81,18 @@ async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
     chosen, reason = choose_model(body, messages)
+    requested_raw = body.get("model")
+    chosen, reason = choose_model(body, messages)
     body["model"] = chosen
-    print(f"[DuCorn Router] agent={detect_agent(messages) or 'unknown'} | {reason} | → {chosen}")
+    print(f"[DuCorn Router] agent={detect_agent(messages) or 'unknown'} | "
+          f"requested={requested_raw!r} | {reason} | → {chosen}")
     
     headers = dict(request.headers)
     headers.pop("content-length", None)
     headers.pop("host", None)
+    auth = (headers.get("authorization") or "").strip()
+    if auth.lower() in ("", "bearer"):
+        headers.pop("authorization", None)
 
     async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(
