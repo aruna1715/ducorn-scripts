@@ -17,8 +17,16 @@ success, and that is precisely how an unkeyed LiteLLM went unnoticed for weeks.
 import os
 import time
 
+import sys
+
 import httpx
 from fastapi import FastAPI, Request
+
+# Logs go to a redirected file, which Python block-buffers — so the log
+# lags reality by however long a 4-8KB buffer takes to fill. Today that
+# meant tailing router.log showed the past, not the present.
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 from fastapi.responses import JSONResponse, Response
 
 app = FastAPI()
@@ -103,20 +111,20 @@ async def chat(request: Request):
         chosen = normalise(requested)
         if available and chosen not in available:
             print(f"[DuCorn Router] REJECTED — requested={requested!r} "
-                  f"not served by LiteLLM")
+                  f"not served by LiteLLM", flush=True)
             return _bad_request(
                 f"Model {requested!r} is not served by LiteLLM. Add it to "
                 f"litellm_config.yaml, or pick one that exists.", available)
 
         body["model"] = chosen
         note = "" if chosen == requested else f" (normalised from {requested!r})"
-        print(f"[DuCorn Router] → {chosen}{note}")
+        print(f"[DuCorn Router] → {chosen}{note}", flush=True)
 
         try:
             resp = await client.post(f"{LITELLM_URL}/v1/chat/completions",
                                      json=body, headers=headers)
         except httpx.TimeoutException as e:
-            print(f"[DuCorn Router] upstream timeout: {e}")
+            print(f"[DuCorn Router] upstream timeout: {e}", flush=True)
             return JSONResponse(
                 {"error": {"type": "upstream_timeout",
                            "message": f"LiteLLM at {LITELLM_URL} did not respond "
@@ -126,7 +134,7 @@ async def chat(request: Request):
             # "LiteLLM is down", "your request was malformed" and "the empty
             # bearer crashed httpx" were all indistinguishable bare 500s. Name
             # the upstream so the next person does not have to guess.
-            print(f"[DuCorn Router] upstream unreachable: {e}")
+            print(f"[DuCorn Router] upstream unreachable: {e}", flush=True)
             return JSONResponse(
                 {"error": {"type": "upstream_unavailable",
                            "message": f"Cannot reach LiteLLM at {LITELLM_URL}: {e}",

@@ -29,6 +29,25 @@ model_list:
       model: deepseek/deepseek-chat
       api_key: os.environ/DEEPSEEK_API_KEY
 
+  # ── Design-grade models ────────────────────────────────────────────────
+  # Added 2026-08-29. Ids verified against each provider's /models endpoint.
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Cheaper and higher-ranked than sonnet-4-6, but 4-6 is what produced the
+  # approved designs — so this is an option to compare against, not a swap.
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: os.environ/GOOGLE_API_KEY
+
 router_settings:
   num_retries: 3
   # fallbacks removed 2026-08-28 — a silent drop from a frontier
