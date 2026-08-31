@@ -23,67 +23,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import drive_routing  # noqa: E402
 
-def _find_interpreter_with_google():
-    """
-    The Google client libraries live in exactly one of the several pythons on
-    this Mac, and it is not the one on PATH (3.14) nor the ducorn venv. Rather
-    than tell you to try another and let you hunt, look.
-    """
-    import glob
-    import shutil
-    import subprocess
-
-    candidates = []
-    for name in ("python3.12", "python3.11", "python3.13", "python3.10"):
-        found = shutil.which(name)
-        if found:
-            candidates.append(found)
-    candidates += sorted(glob.glob("/opt/homebrew/opt/python@3.*/bin/python3.*"))
-    candidates += sorted(glob.glob("/opt/homebrew/bin/python3.1*"))
-    candidates.append("/usr/bin/python3")
-    candidates.append("/Users/ducorn/DC/ducorn/.venv/bin/python")
-
-    seen, working = set(), []
-    for c in candidates:
-        real = os.path.realpath(c) if os.path.exists(c) else c
-        if real in seen or not os.path.exists(c):
-            continue
-        seen.add(real)
-        try:
-            r = subprocess.run([c, "-c", "import googleapiclient, google.oauth2"],
-                               capture_output=True, timeout=20)
-            if r.returncode == 0:
-                working.append(c)
-        except Exception:
-            pass
-    return working
-
-
 import os  # noqa: E402
 
-try:
-    from google.oauth2.credentials import Credentials  # noqa: E402
-    from google.auth.transport.requests import Request  # noqa: E402
-    from googleapiclient.discovery import build  # noqa: E402
-except ImportError:
-    found = _find_interpreter_with_google()
-    if not found:
-        sys.exit(
-            f"The Google API libraries are not in {sys.executable}, and I could "
-            f"not find any interpreter on this Mac that has them.\n\n"
-            f"Install them into the one you want to use, e.g.:\n"
-            f"    python3.12 -m pip install google-api-python-client google-auth\n\n"
-            f"(gdrive_sync.py needs the same libraries, so whichever interpreter "
-            f"runs that one is the right target.)")
+from bootstrap_python import ensure_modules  # noqa: E402
 
-    if os.environ.get("_DUCORN_REEXEC"):
-        sys.exit(f"Re-exec under {found[0]} still could not import the libraries. "
-                 f"Stopping rather than looping.")
+# The Google client libraries are in python3.12, not in the python3 on PATH.
+# This probe used to be twenty lines inline here; migrate.py then needed the
+# same thing for psycopg2, so it moved to bootstrap_python.py.
+ensure_modules("googleapiclient", "google.oauth2",
+               pip=["google-api-python-client", "google-auth"])
 
-    print(f"[reorganize_drive] {os.path.basename(sys.executable)} has no Google "
-          f"API libraries; re-running under {found[0]}\n")
-    os.environ["_DUCORN_REEXEC"] = "1"
-    os.execv(found[0], [found[0], os.path.abspath(__file__)] + sys.argv[1:])
+from google.oauth2.credentials import Credentials  # noqa: E402
+from google.auth.transport.requests import Request  # noqa: E402
+from googleapiclient.discovery import build  # noqa: E402
 
 TOKEN_FILE = "/Users/ducorn/DC/shared/gdrive-token.json"
 DRIVE_ROOT = "DuCorn"

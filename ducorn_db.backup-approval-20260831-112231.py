@@ -129,26 +129,16 @@ def get_activity_summary():
 
 # ── Approval Requests ──────────────────────────────────────────────────────────
 
-def request_approval(requested_by, title, description, document_path=None,
-                     next_phase=None, product_slug=None):
-    """
-    Agent requests founder approval.
-
-    next_phase / product_slug say what granting this approval should start.
-    Both are optional so existing callers keep working, but a gate that omits
-    them produces an approval the Slack bot can only act on by parsing its
-    title — which is the failure these columns exist to end.
-    """
+def request_approval(requested_by, title, description, document_path=None):
+    """Agent requests founder approval"""
     with get_conn() as conn:
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO approval_requests 
-                (requested_by, title, description, document_path,
-                 next_phase, product_slug)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (requested_by, title, description, document_path)
+            VALUES (%s, %s, %s, %s)
             RETURNING id
-        """, (requested_by, title, description, document_path,
-              next_phase, product_slug))
+        """, (requested_by, title, description, document_path))
         row_id = cur.fetchone()[0]
     print(f"[DuCorn DB] Approval requested by {requested_by}: {title} (id={row_id})")
     return row_id

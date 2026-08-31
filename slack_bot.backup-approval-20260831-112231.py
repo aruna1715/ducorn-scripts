@@ -78,8 +78,7 @@ def cmd_approve(say, approval_id_str):
         from ducorn_db import get_conn
         with get_conn() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT title, description, next_phase, product_slug "
-                        "FROM approval_requests WHERE id=%s", (approval_id,))
+            cur.execute("SELECT title, description FROM approval_requests WHERE id=%s", (approval_id,))
             row = cur.fetchone()
         
         if not row:
@@ -90,82 +89,112 @@ def cmd_approve(say, approval_id_str):
         ducorn_db.approve_request(approval_id, 'board')
         say(f"✅ *Approved:* `{title}`")
         
-        # What to run next is recorded on the approval by the gate that raised
-        # it. Four copy-pasted branches keyed on title substrings used to live
-        # here; they could not see a gate added after they were written, and a
-        # reworded Slack message silently broke the pipeline.
-        next_phase   = row[2]
-        topic        = row[3]
-
-        if not next_phase or not topic:
-            # Approvals created before migration 001. Parse the old way, once,
-            # and say so — this path should stop appearing within a day or two.
-            legacy = {
-                "PRD exists — reuse or redo research:": "build",
-                "PRD Ready — approve to build:":        "build",
-                "UI designs ready — approve to build:": "build",
-                "QA Passed — approve to launch:":       "launch",
-                "Deploy to production:":                "deploy",
-            }
-            for prefix, phase in legacy.items():
-                if prefix in title:
-                    next_phase = next_phase or phase
-                    topic = topic or title.replace(prefix, "").strip()
-                    print(f"[approve] {approval_id}: pre-migration approval, "
-                          f"phase inferred from title -> {next_phase}")
-                    break
-
-        if not next_phase or not topic:
-            # Loud, and NOT a guess. Defaulting to build here is how an
-            # unrecognised gate used to skip straight past the work it gated.
-            say(f"⚠️ Approved, but I cannot tell what `{title}` should start "
-                f"(no next_phase recorded). Nothing was launched — start the "
-                f"phase from the dashboard.")
-            print(f"[approve] {approval_id}: no next_phase and title matched "
-                  f"nothing: {title!r}")
-            return
-
-        _db_engine, _db_coder, _db_complexity = "fast", "crewai", "simple"
-        try:
-            from ducorn_db import get_conn as _gc
-            with _gc() as _conn:
-                _cur = _conn.cursor()
-                _cur.execute("SELECT build_engine, coder, complexity "
-                             "FROM pipeline_runs WHERE slug=%s", (topic,))
-                _row = _cur.fetchone()
-                if _row:
-                    # Assigned together with the defaults above, so a product
-                    # with no row cannot NameError halfway through a Popen the
-                    # way the old build branches could.
-                    _db_engine     = _row[0] or "fast"
-                    _db_coder      = _row[1] or "crewai"
-                    _db_complexity = _row[2] or "simple"
-        except Exception as _e:
-            print(f"[approve] DB read failed for {topic}: {_e} — using defaults")
-
-        emoji = {"design": "🎨", "build": "🔨", "qa": "🔍",
-                 "launch": "🚀", "deploy": "⚙️"}.get(next_phase, "▶️")
-        say(f"{emoji} *ATLAS: starting `{next_phase}` for `{topic}`...*")
-
+        # Detect which pipeline phase to trigger next
         import subprocess
-        log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
-        subprocess.Popen(
-            ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
-             "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
-             topic, "--phase", next_phase,
-             "--engine", _db_engine,
-             "--complexity", _db_complexity,
-             "--coder", _db_coder],
-            # Append. One of the old branches opened this 'w' and truncated the
-            # whole log for the product at the moment you most want to read it.
-            stdout=open(log_path, 'a'),
-            stderr=subprocess.STDOUT,
-            env={**os.environ,
-                 "PYTHONPATH": "/Users/ducorn/DC/scripts:/Users/ducorn/DC/ducorn",
-                 "OPENAI_API_KEY": os.environ.get("LITELLM_KEY_ATLAS", ""),
-                 "OPENAI_BASE_URL": "http://localhost:4001/v1",
-                 "CREWAI_TOOLS_ALLOW_UNSAFE_PATHS": "true"}
-        )
+        if "PRD exists — reuse or redo research:" in title:
+            # Founder approved — reuse existing PRD, skip to build
+            topic = title.replace("PRD exists — reuse or redo research:", "").strip()
+            say(f"♻️ *ATLAS: Reusing existing PRD for `{topic}` — skipping research*")
+            log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
+            _db_engine = "fast"
+            _db_coder = "crewai"
+            try:
+                from ducorn_db import get_conn
+                with get_conn() as _conn:
+                    _cur = _conn.cursor()
+                    _cur.execute("SELECT build_engine, coder, complexity FROM pipeline_runs WHERE slug=%s", (topic,))
+                    _row = _cur.fetchone()
+                    if _row:
+                        _db_engine = _row[0] or "fast"
+                        _db_coder = _row[1] or "crewai"
+                        _db_complexity = _row[2] or "simple"
+            except Exception as _e:
+                print(f"DB read failed: {_e}")
+            subprocess.Popen(
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
+                 "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
+                 topic, "--phase", "build",
+                 "--engine", _db_engine,
+                 "--complexity", _db_complexity,
+                 "--coder", _db_coder],
+                stdout=open(log_path, 'a'),
+                stderr=subprocess.STDOUT,
+                env={**os.environ,
+                     "PYTHONPATH": "/Users/ducorn/DC/scripts:/Users/ducorn/DC/ducorn",
+                     "OPENAI_API_KEY": os.environ.get("LITELLM_KEY_ATLAS", ""),
+                     "OPENAI_BASE_URL": "http://localhost:4001/v1",
+                     "CREWAI_TOOLS_ALLOW_UNSAFE_PATHS": "true"}
+            )
+
+        elif "PRD Ready — approve to build:" in title:
+            topic = title.replace("PRD Ready — approve to build:", "").strip()
+            say(f"🔨 *ATLAS: Starting build phase for `{topic}`...*")
+            log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
+            # Read build_engine and coder from DB
+            import sys as _sys
+            _sys.path.insert(0, '/Users/ducorn/DC/scripts')
+            _db_engine = "fast"
+            _db_coder = "crewai"
+            try:
+                from ducorn_db import get_conn
+                with get_conn() as _conn:
+                    _cur = _conn.cursor()
+                    _cur.execute("SELECT build_engine, coder, complexity FROM pipeline_runs WHERE slug=%s", (topic,))
+                    _row = _cur.fetchone()
+                    if _row:
+                        _db_engine = _row[0] or "fast"
+                        _db_coder = _row[1] or "crewai"
+                        _db_complexity = _row[2] or "simple"
+            except Exception as _e:
+                print(f"DB read failed: {_e}")
+            subprocess.Popen(
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
+                 "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
+                 topic, "--phase", "build",
+                 "--engine", _db_engine,
+                 "--complexity", _db_complexity,
+                 "--coder", _db_coder],
+                stdout=open(log_path, 'a'),
+                stderr=subprocess.STDOUT,
+                env={**os.environ,
+                     "PYTHONPATH": "/Users/ducorn/DC/scripts:/Users/ducorn/DC/ducorn",
+                     "OPENAI_API_KEY": os.environ.get("LITELLM_KEY_ATLAS", ""),
+                     "OPENAI_BASE_URL": "http://localhost:4001/v1",
+                     "CREWAI_TOOLS_ALLOW_UNSAFE_PATHS": "true"}
+            )
+        elif "QA Passed — approve to launch:" in title:
+            topic = title.replace("QA Passed — approve to launch:", "").strip()
+            say(f"🚀 *ATLAS: Starting launch phase for `{topic}`...*")
+            log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
+            subprocess.Popen(
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
+                 "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
+                 topic, "--phase", "launch"],
+                stdout=open(log_path, 'w'),
+                stderr=subprocess.STDOUT,
+                env={**os.environ,
+                     "PYTHONPATH": "/Users/ducorn/DC/scripts:/Users/ducorn/DC/ducorn",
+                     "OPENAI_API_KEY": os.environ.get("LITELLM_KEY_ATLAS", ""),
+                     "OPENAI_BASE_URL": "http://localhost:4001/v1"}
+            )
+            
+        elif "Deploy to production:" in title:
+            topic = title.replace("Deploy to production:", "").strip()
+            say(f"⚙️ *ATLAS: Deploying `{topic}` to production...*")
+            log_path = f"/Users/ducorn/DC/logs/flow_{topic}.log"
+            env_base = {**os.environ,
+                "PYTHONPATH": "/Users/ducorn/DC/scripts:/Users/ducorn/DC/ducorn",
+                "OPENAI_API_KEY": os.environ.get("LITELLM_KEY_ATLAS", ""),
+                "OPENAI_BASE_URL": "http://localhost:4001/v1",
+                "CREWAI_TOOLS_ALLOW_UNSAFE_PATHS": "true"}
+            subprocess.Popen(
+                ["/Users/ducorn/DC/ducorn/.venv/bin/python", "-u",
+                 "/Users/ducorn/DC/ducorn/flows/langgraph_flow.py",
+                 topic, "--phase", "deploy"],
+                stdout=open(log_path, 'a'),
+                stderr=subprocess.STDOUT,
+                env=env_base
+            )
 
     except ValueError:
         say(f"❌ Invalid ID: `{approval_id_str}`. Use: `@DuCorn approve <id>`")
