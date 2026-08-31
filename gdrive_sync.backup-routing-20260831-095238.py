@@ -21,9 +21,6 @@ from pathlib import Path
 from datetime import datetime
 from fnmatch import fnmatch
 
-sys.path.insert(0, str(Path(__file__).parent))
-import drive_routing
-
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -40,15 +37,6 @@ PDF_API_URL     = "http://localhost:8001/v1/convert"
 PDF_API_KEY     = os.environ.get("PDF_API_KEY", "dk_pro_test_key_002")
 DRIVE_ROOT      = "DuCorn"
 
-# ── FOLDER MAPPING (RETIRED 2026-08-31) ───────────────────────────────────────
-# FOLDER_MAP below is no longer consulted. It is kept because it explains the
-# state of Drive: a hand-maintained list of P001-era filename patterns whose
-# last entry was ("*", "DuCorn/Company"). Every product built after P001 matched
-# nothing and fell into that catch-all, which is how ~35 PDFs — real products,
-# throwaway runs and seven dashboard iterations — ended up in one flat folder
-# without a single error ever being raised.
-#
-# Routing now derives from what the file is: see drive_routing.py.
 # ── FOLDER MAPPING ────────────────────────────────────────────────────────────
 FOLDER_MAP = [
     # Weekly reports
@@ -140,11 +128,11 @@ def get_folder_id_for_path(service, path):
         parent_id = get_or_create_folder(service, part, parent_id)
     return parent_id
 
-def get_drive_folder(filename, environments=None):
-    """Delegates to drive_routing so sync and reorganise agree. Returns None
-    for files that should not reach Drive at all."""
-    folder, reason = drive_routing.route(filename, environments)
-    return folder
+def get_drive_folder(filename):
+    for pattern, folder in FOLDER_MAP:
+        if fnmatch(filename, pattern):
+            return folder
+    return f"{DRIVE_ROOT}/Company"
 
 # ── PDF CONVERSION ────────────────────────────────────────────────────────────
 def convert_md_to_pdf(md_path: Path) -> Path:
@@ -223,12 +211,7 @@ def sync(force=False, specific_file=None):
     else:
         md_files = sorted(DOCS_DIR.glob("*.md"))
 
-    md_files = [p for p in md_files if not drive_routing.excluded(p.name)]
     print(f"📚 Found {len(md_files)} markdown files\n")
-
-    # Read once; a run marked test belongs in Archive, not among real products.
-    environments = drive_routing.load_environments(
-        os.environ.get("DUCORN_DATABASE_URL", "postgresql://localhost/ducorn"))
 
     converted = uploaded = skipped = errors = 0
 
@@ -252,16 +235,8 @@ def sync(force=False, specific_file=None):
         converted += 1
 
         # Upload to correct Drive folder
-        drive_folder, why = drive_routing.route(pdf_path.name, environments)
-        if drive_folder is None:
-            print(f"  ⏭️  skipped — {why}")
-            skipped += 1
-            continue
-        print(f"  📂 Target: {drive_folder}   ({why})")
-        if drive_folder.endswith("/Inbox"):
-            # Deliberately loud. The old catch-all made this case invisible.
-            print(f"  ⚠️  UNROUTED: {pdf_path.name} has no product slug and no "
-                  f"company match — add a rule in drive_routing.py")
+        drive_folder = get_drive_folder(pdf_path.name)
+        print(f"  📂 Target: {drive_folder}")
 
         try:
             folder_id = get_folder_id_for_path(service, drive_folder)

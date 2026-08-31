@@ -69,20 +69,33 @@ COMPANY_DOCS = [
 
 # ── Throwaway runs ───────────────────────────────────────────────────────────
 # Runs made to exercise the pipeline, not to build something anyone will use.
-# From August 2026 onward the pipeline_runs.environment column records this at
-# run time and is authoritative; these patterns only classify the backlog from
-# before that column was actually populated. Do not add to this list for new
-# runs — set the environment on the run instead.
+#
+# This list is deliberately SHORT, and it got shorter on 31 Aug 2026. The first
+# draft also matched ducorn-stack-health-check and ducorn-e2e-verify-aug25, and
+# Vijay corrected both: they are named after what they verify, but they are real
+# products. I had been reading intent out of filenames and was wrong about two
+# of the three calls I put up for review.
+#
+# So the rule now is: only a name that says "test" in so many words, or a
+# hello-world scaffold, counts. Everything else goes to Products, where a
+# wrongly-filed real product is visible rather than buried in an archive nobody
+# opens. pipeline_runs.environment is the real answer and is authoritative
+# wherever it is set — do not extend this list for new runs, set the environment
+# on the run instead.
 TEST_PATTERNS = [
     r"^test-",
     r"-test-",
     r"^pipeline-test-",
     r"^lg-hello-world$",
     r"^hello-langgraph$",
-    r"^ducorn-e2e-verify-",
-    r"^ducorn-stack-health-check$",
-    r"^ducorn-pipeline-dashboard-v\d+[a-z]?$",
 ]
+
+# ── Superseded drafts ────────────────────────────────────────────────────────
+# Not tests — earlier versions of something real. ducorn-pipeline-dashboard was
+# iterated v5..v10, which is one product with six surviving drafts, not six
+# products. They go to Archive/Superseded so Products shows the current thing
+# without pretending the drafts were throwaway.
+SUPERSEDED = r"^(ducorn-pipeline-dashboard)-v\d+[a-z]?$"
 
 # ── Slug rewrites ────────────────────────────────────────────────────────────
 # Applied after the slug is split, before the folder is chosen. Two reasons a
@@ -100,8 +113,18 @@ TEST_PATTERNS = [
 # the kind of plausible-looking wrong answer a dry run is for.
 SLUG_ALIASES = {
     "p001-autonomy-console": "ducorn-autonomy-console",
+    # One product run twice under two names, because the second run needed to
+    # not re-use the first one's PRD. Confirmed by Vijay 31 Aug 2026. If the
+    # other name is the keeper, swap the two sides of this line.
+    "ducorn-pipeline-run-history": "ducorn-run-history",
 }
-VERSION_CHURN = r"^(ducorn-pipeline-dashboard)-v\d+[a-z]?$"
+
+# What this router has an opinion about. The first dry run tried to move
+# index.html, main.py and main_flow.py out of a "DuCorn QA" folder and into
+# Inbox — source files a person had put somewhere on purpose. Routing rules
+# derived from document naming have nothing useful to say about those, so they
+# are left exactly where they are.
+ROUTABLE = (".pdf", ".json")
 
 # Files that should never reach Drive at all.
 EXCLUDE = [
@@ -135,11 +158,26 @@ def split_slug(filename):
 
 def is_test(slug, environment=None):
     """
-    environment comes from pipeline_runs and wins when it is set — it was
-    recorded by the run itself, whereas the patterns are me reading names.
+    Name patterns only. `environment` is accepted and deliberately IGNORED.
+
+    An earlier version of this treated pipeline_runs.environment as
+    authoritative, on the reasoning that the run recorded it and I was only
+    guessing from filenames. The first dry run against real Drive contents
+    showed what that actually does: daily-standup-bot, ducorn-run-history,
+    ducorn-stack-health-check and ducorn-e2e-verify-aug25 all went to
+    Archive/Tests, and Vijay had explicitly said the last two are real.
+
+    The column does not mean what I took it to mean. environment=test records
+    that a run used LOCAL MODELS — the TEST/PRODUCTION toggle on the dashboard,
+    which exists to control spend. Nearly every run is environment=test because
+    nearly every run was deliberately cheap. It says how the run was executed,
+    not whether the product is real. Those are different questions and I
+    collapsed them.
+
+    So: nothing in the database currently answers "was this throwaway". Until
+    something does, only a name that says so counts, and everything else stays
+    in Products where a mistake is visible.
     """
-    if environment:
-        return environment.strip().lower() in ("test", "testing", "dev")
     return any(re.search(p, slug) for p in TEST_PATTERNS)
 
 
@@ -151,7 +189,9 @@ def route(filename, environments=None):
     environments: optional {slug: environment} read from pipeline_runs.
     """
     if excluded(filename):
-        return None, "excluded — not a document"
+        return None, "excluded — working file, not a document"
+    if not filename.lower().endswith(ROUTABLE) and not filename.lower().endswith(".md"):
+        return None, "not a document — left where it is"
 
     s = _stem(filename)
     environments = environments or {}
@@ -166,19 +206,18 @@ def route(filename, environments=None):
     slug, doctype = split_slug(filename)
     if slug:
         env = environments.get(slug)
-        test = is_test(slug, env)
-        why = ""
         folder_slug = SLUG_ALIASES.get(slug, slug)
-        churn = re.match(VERSION_CHURN, folder_slug)
-        if churn:
-            folder_slug = churn.group(1)
-        if folder_slug != slug:
-            why = f" -> filed under {folder_slug}"
+        superseded = re.match(SUPERSEDED, folder_slug)
+        if superseded:
+            folder_slug = superseded.group(1)
+        why = f" -> filed under {folder_slug}" if folder_slug != slug else ""
 
-        if test:
-            reason = f"environment={env}" if env else "name looks like a test run"
+        if is_test(slug, env):
             return (f"{DRIVE_ROOT}/Archive/Tests/{folder_slug}",
-                    f"{doctype} for {slug} ({reason}{why})")
+                    f"{doctype} for {slug} (named as a test run)")
+        if superseded:
+            return (f"{DRIVE_ROOT}/Archive/Superseded/{folder_slug}",
+                    f"{doctype} for {slug} (superseded draft{why})")
         return f"{DRIVE_ROOT}/Products/{folder_slug}", f"{doctype} for {slug}{why}"
 
     # No catch-all. An unrouted file is a fact worth seeing.
