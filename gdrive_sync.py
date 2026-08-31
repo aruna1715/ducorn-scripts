@@ -32,6 +32,12 @@ from googleapiclient.http import MediaFileUpload
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 DOCS_DIR        = Path("/Users/ducorn/DC/ducorn-products/docs")
 PDFS_DIR        = Path("/Users/ducorn/DC/ducorn-products/pdfs")
+
+# Returned when the existing PDF was up to date and nothing was built. None
+# already means "conversion failed" and has to keep meaning that, so a skip
+# needs its own value rather than sharing one of the two the caller can
+# already see.
+REUSED = object()
 DATA_DIR        = Path("/Users/ducorn/DC/ducorn-products/data")
 CREDS_FILE      = "/Users/ducorn/DC/shared/gdrive-credentials.json"
 TOKEN_FILE      = "/Users/ducorn/DC/shared/gdrive-token.json"
@@ -147,12 +153,18 @@ def get_drive_folder(filename, environments=None):
     return folder
 
 # ── PDF CONVERSION ────────────────────────────────────────────────────────────
-def convert_md_to_pdf(md_path: Path) -> Path:
+def convert_md_to_pdf(md_path: Path, force: bool = False) -> Path:
     pdf_path = PDFS_DIR / md_path.with_suffix('.pdf').name
 
-    # Skip if PDF is newer than MD
-    if pdf_path.exists() and pdf_path.stat().st_mtime > md_path.stat().st_mtime:
-        return pdf_path  # Already up to date, no new conversion needed
+    # Skip if the PDF is newer than the MD — unless forced. Without the
+    # force check, `--force` after a PDF ENGINE change does nothing at all:
+    # the markdown has not moved, so every document looks up to date and the
+    # stale PDF is re-uploaded while the run reports a conversion.
+    if (not force and pdf_path.exists()
+            and pdf_path.stat().st_mtime > md_path.stat().st_mtime):
+        print(f"  ⏭️  PDF is newer than the markdown — reusing "
+              f"{pdf_path.name} (pass --force to rebuild)")
+        return REUSED
 
     print(f"  📄 Converting: {md_path.name}")
     content = md_path.read_text(encoding='utf-8')
@@ -169,7 +181,15 @@ def convert_md_to_pdf(md_path: Path) -> Path:
             print(f"  ✅ PDF created: {pdf_path.name} ({len(resp.content):,} bytes)")
             return pdf_path
         else:
-            print(f"  ❌ Conversion failed: {resp.status_code}")
+            # The endpoint puts the real cause in the body. Print it: a bare
+            # status code sends you to a log that may not have the traceback.
+            detail = ""
+            try:
+                detail = resp.json().get("detail", "")
+            except Exception:
+                detail = (resp.text or "")[:500]
+            print(f"  ❌ Conversion failed: {resp.status_code}"
+                  + (f"\n     {detail}" if detail else "  (no detail returned)"))
             return None
     except Exception as e:
         print(f"  ❌ Conversion error: {e}")
@@ -230,7 +250,7 @@ def sync(force=False, specific_file=None):
     environments = drive_routing.load_environments(
         os.environ.get("DUCORN_DATABASE_URL", "postgresql://localhost/ducorn"))
 
-    converted = uploaded = skipped = errors = 0
+    converted = uploaded = skipped = errors = reused = 0
 
     for md_path in md_files:
         # Check if file has changed since last sync
@@ -245,11 +265,15 @@ def sync(force=False, specific_file=None):
         print(f"Processing: {md_path.name}")
 
         # Convert MD to PDF
-        pdf_path = convert_md_to_pdf(md_path)
-        if not pdf_path:
+        pdf_path = convert_md_to_pdf(md_path, force=force)
+        if pdf_path is REUSED:
+            pdf_path = PDFS_DIR / md_path.with_suffix(".pdf").name
+            reused += 1
+        elif not pdf_path:
             errors += 1
             continue
-        converted += 1
+        else:
+            converted += 1
 
         # Upload to correct Drive folder
         drive_folder, why = drive_routing.route(pdf_path.name, environments)
@@ -301,6 +325,7 @@ def sync(force=False, specific_file=None):
     print(f"\n{'='*60}")
     print(f"SYNC COMPLETE")
     print(f"  📄 Converted: {converted}")
+    print(f"  ♻️  Reused:    {reused}   (PDF already newer than the markdown)")
     print(f"  ☁️  Uploaded:  {uploaded}")
     print(f"  ⏭️  Skipped:   {skipped}")
     print(f"  ❌ Errors:    {errors}")
