@@ -1,0 +1,44 @@
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: local-fast
+    litellm_params:
+      model: ollama/llama3.1
+      api_base: http://localhost:11434
+
+#  - model_name: local-heavy
+#    litellm_params:
+#      model: ollama/qwen2.5:32b
+#      api_base: http://localhost:11434
+
+#  - model_name: gemini-flash
+#    litellm_params:
+#      model: gemini/gemini-2.5-flash
+#      api_key: os.environ/GOOGLE_API_KEY
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+router_settings:
+  num_retries: 3
+  # fallbacks removed 2026-08-28 — a silent drop from a frontier
+  # model to llama3.1 hid an unkeyed LiteLLM for weeks. Fail loudly
+  # and switch models in the dashboard instead.
+litellm_settings:
+  set_verbose: false
+  
+general_settings:
+  database_url: "postgresql://ducorn@localhost/litellm_db"
+  master_key: "ducorn-admin-2026"
+  
+  
