@@ -131,6 +131,23 @@ with psycopg2.connect(DB) as c, c.cursor() as cur:
         check("expiry interval expression is valid SQL", False, str(e)[:80])
     c.rollback()
 
+print("\n── per-agent spend keys ────────────────────────────────────────────")
+# Checked here rather than at run time on purpose: _key_for falls back to ATLAS
+# so a missing key does not kill a pipeline mid-flight — which means the only
+# place it can be caught is before one starts.
+for agent in ("SAGE", "REX", "IRIS", "NOVA", "DESIGN", "ATLAS"):
+    has = bool(os.environ.get(f"LITELLM_KEY_{agent}", "").strip())
+    check(f"LITELLM_KEY_{agent} is set", has,
+          "" if has else f"{agent} would spend against ATLAS and be "
+                         f"attributed to it")
+
+flow_txt = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py").read_text()
+skill_txt = Path("/Users/ducorn/DC/ducorn/skill_runner.py").read_text()
+check("nodes select their own key",
+      all(f'_use_key("{a}")' in flow_txt for a in ("SAGE", "DESIGN", "NOVA")),
+      "a node without this bills ATLAS")
+check("skills select their own key", "_use_key(agent_name)" in skill_txt)
+
 print("\n── graph ───────────────────────────────────────────────────────────")
 graph_src = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py").read_text()
 for node in ("design", "gate_2"):
