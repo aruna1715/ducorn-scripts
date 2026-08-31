@@ -78,8 +78,9 @@ def cmd_approve(say, approval_id_str):
         from ducorn_db import get_conn
         with get_conn() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT title, description, next_phase, product_slug "
-                        "FROM approval_requests WHERE id=%s", (approval_id,))
+            cur.execute("SELECT title, description, next_phase, product_slug, "
+                        "document_path FROM approval_requests WHERE id=%s",
+                        (approval_id,))
             row = cur.fetchone()
         
         if not row:
@@ -124,6 +125,36 @@ def cmd_approve(say, approval_id_str):
             print(f"[approve] {approval_id}: no next_phase and title matched "
                   f"nothing: {title!r}")
             return
+
+        # A gate that raised one approval per option: approving this one is
+        # choosing it, so record the choice and set the siblings aside. They
+        # were not rejected — nobody turned them down, they lost a vote of one.
+        chosen_design = row[4] if len(row) > 4 else None
+        if chosen_design:
+            try:
+                from ducorn_db import get_conn as _gc
+                with _gc() as _conn:
+                    _cur = _conn.cursor()
+                    _cur.execute("UPDATE pipeline_runs SET design_choice=%s "
+                                 "WHERE slug=%s", (chosen_design, topic))
+                    _cur.execute("""
+                        UPDATE approval_requests
+                        SET status='superseded', superseded_by=%s
+                        WHERE product_slug=%s AND next_phase=%s
+                          AND status='pending' AND id<>%s
+                    """, (approval_id, topic, next_phase, approval_id))
+                    setaside = _cur.rowcount
+                import os.path as _op
+                say(f"🎨 Building *{_op.basename(chosen_design)}*"
+                    + (f" — {setaside} other variant(s) set aside."
+                       if setaside else "."))
+            except Exception as _e:
+                # Do NOT continue: the build would start without knowing which
+                # design won, which is the decorative-gate failure again.
+                say(f"❌ Approved, but I could not record the design choice "
+                    f"({_e}). Build not started.")
+                print(f"[approve] {approval_id}: design_choice write failed: {_e}")
+                return
 
         _db_engine, _db_coder, _db_complexity = "fast", "crewai", "simple"
         try:

@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 .DS_Store
 *.bak
+
+# ── Patch backups ────────────────────────────────────────────────────────────
+# Written by the patch scripts in scripts/ before they edit a file in place.
+# Useful for an hour, harmful in a commit: git already holds the previous
+# version, and these are unversioned copies that never get cleaned up.
+*.backup-*
+*.stale-*

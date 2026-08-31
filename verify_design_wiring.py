@@ -105,6 +105,32 @@ else:
           safe.get("has_ui") is False,
           "a wrong default here generates designs nobody asked for")
 
+print("\n── design variants ─────────────────────────────────────────────────")
+with psycopg2.connect(DB) as c, c.cursor() as cur:
+    cur.execute("""SELECT column_name FROM information_schema.columns
+                   WHERE table_name='design_variants'""")
+    dv_cols = {r[0] for r in cur.fetchall()}
+check("design_variants table exists", bool(dv_cols),
+      "gate 2 has nowhere to record the variants it offers")
+check("view_token column exists", "view_token" in dv_cols,
+      "no capability URL means no way to see a design from Slack")
+check("pipeline_runs.design_choice exists", "design_choice" in run_cols
+      or "design_choice" in {r for r in run_cols},
+      "the build cannot know which variant won")
+check("approval_requests.superseded_by exists",
+      "superseded_by" in approval_cols)
+
+# The interval expression is the kind of thing that only fails at insert time,
+# so exercise it rather than trusting that it parses.
+with psycopg2.connect(DB) as c, c.cursor() as cur:
+    try:
+        cur.execute("SELECT NOW() + make_interval(days => %s)", (30,))
+        cur.fetchone()
+        check("expiry interval expression is valid SQL", True)
+    except Exception as e:
+        check("expiry interval expression is valid SQL", False, str(e)[:80])
+    c.rollback()
+
 print("\n── graph ───────────────────────────────────────────────────────────")
 graph_src = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py").read_text()
 for node in ("design", "gate_2"):
@@ -120,11 +146,27 @@ api_src = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/"
 check("resume knows the design phases", '"design", "gate_2"' in api_src,
       "otherwise a run paused at gate_2 resumes at build, skipping the gate")
 
+check("/d/<token> is exempt from x-api-key", 'startswith("/d/")' in api_src,
+      "founders open design links from a phone, with no header to send")
+check("view endpoint re-checks the path", "refusing" in api_src
+      and "design" in api_src,
+      "the one keyless endpoint must not trust a stored path")
+
 slack_src = Path("/Users/ducorn/DC/scripts/slack_bot.py").read_text()
 check("slack reads next_phase", "next_phase" in slack_src)
+check("slack records the design choice", "design_choice" in slack_src)
+check("slack sets siblings aside", "superseded" in slack_src)
 check("slack no longer branches on the PRD title",
       'elif "PRD Ready — approve to build:" in title:' not in slack_src,
       "the old title-matching dispatch is still there")
+
+flow_src = graph_src
+check("gate 2 raises one approval per variant",
+      "for vid, name, archetype, register, path, token in rows" in flow_src,
+      "one approval for all three means approving is not choosing")
+check("build implements the chosen design",
+      "DUCORN_APPROVED_DESIGN" in flow_src,
+      "without this the gate is decorative — you pick, the builder ignores it")
 
 print()
 if failures:
