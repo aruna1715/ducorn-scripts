@@ -68,8 +68,22 @@ def known_slugs():
         return {r[0] for r in cur.fetchall()}
 
 
+# Inputs, not outputs. A brief is something a founder wrote and may need to
+# re-upload; deleting the run must not delete the specification for it. Learned
+# the hard way on 1 Sept, when removing ducorn-spend-view took the brief with
+# it because the filename starts with the slug.
+INPUT_SUFFIXES = ("-brief", "-BRIEF", "-spec", "-requirements")
+
+
+def is_input(filename):
+    stem = Path(filename).stem
+    return any(stem.lower().endswith(sfx.lower()) for sfx in INPUT_SUFFIXES)
+
+
 def owns(filename, slug, others):
     """Does this file belong to `slug` and not to a longer-named sibling?"""
+    if is_input(filename):
+        return False
     stem = Path(filename).stem
     # Strip a second extension, e.g. foo-gstack-checkpoint.json -> stem already ok
     if stem == slug:
@@ -221,6 +235,19 @@ def main():
     log = ROOT / "logs" / f"flow_{slug}.log"
     if log.is_file():
         moves.append(log)
+
+    # Show what was deliberately spared, so "where did my brief go" never
+    # needs asking again.
+    spared = []
+    for d in (PRODUCTS / "docs",):
+        if d.is_dir():
+            spared = [p for p in sorted(d.iterdir())
+                      if p.is_file() and is_input(p.name)
+                      and p.stem.lower().startswith(slug.lower())]
+    if spared:
+        print(f"\nkept (inputs, not outputs):")
+        for p in spared:
+            print(f"    {p.relative_to(ROOT)}")
 
     print(f"\nfiles ({len(moves)}) -> {dest}:")
     for m in moves:

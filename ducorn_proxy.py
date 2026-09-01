@@ -70,6 +70,58 @@ def normalise(name):
     return name.split("/")[-1].strip() if name else ""
 
 
+# How long to wait for an answer, by where the answer comes from.
+#
+# One blanket 300s meant a stalled Ollama call burned five minutes before
+# anyone found out. A local model that has produced nothing in two and a half
+# minutes is stuck behind a reload or a queue, not thinking — failing fast lets
+# the caller retry inside its own budget. Remote models keep the long one: a
+# large completion legitimately takes minutes.
+LOCAL_TIMEOUT = float(os.environ.get("DUCORN_LOCAL_TIMEOUT", "150"))
+REMOTE_TIMEOUT = float(os.environ.get("DUCORN_REMOTE_TIMEOUT", "300"))
+
+
+# The longest answer a local model may produce.
+#
+# Ollama measures ~30 tok/s on this machine and the local budget is 150s, so
+# anything past ~4,500 tokens cannot finish inside the timeout regardless. A
+# PRD from llama3.1 is 1,000–2,500 tokens, so this is about double what the
+# work needs. Raise it and you must raise DUCORN_LOCAL_TIMEOUT with it, or the
+# cap just becomes a slower timeout.
+LOCAL_MAX_TOKENS = int(os.environ.get("DUCORN_LOCAL_MAX_TOKENS", "4096"))
+
+
+def _cap_local_output(body: dict, model: str) -> str:
+    """
+    Bound a local generation. Returns a note for the log, or "".
+
+    llama3.1 fell into a repetition loop and produced 147,538 tokens on one
+    request, holding Ollama's only slot for over an hour while every other
+    call queued behind it and timed out. Nothing capped the length: not the
+    config, not the callers. Now the router does, for everyone, whatever they
+    forget to set.
+    """
+    if not str(model).startswith("local-"):
+        return ""
+    asked = body.get("max_tokens")
+    if asked is None:
+        body["max_tokens"] = LOCAL_MAX_TOKENS
+        return f"max_tokens defaulted to {LOCAL_MAX_TOKENS}"
+    try:
+        asked = int(asked)
+    except (TypeError, ValueError):
+        body["max_tokens"] = LOCAL_MAX_TOKENS
+        return f"max_tokens was {asked!r}; set to {LOCAL_MAX_TOKENS}"
+    if asked > LOCAL_MAX_TOKENS:
+        body["max_tokens"] = LOCAL_MAX_TOKENS
+        return f"max_tokens clamped {asked} → {LOCAL_MAX_TOKENS}"
+    return ""
+
+
+def _timeout_for(model: str) -> float:
+    return LOCAL_TIMEOUT if str(model).startswith("local-") else REMOTE_TIMEOUT
+
+
 def _bad_request(message, available):
     return JSONResponse(
         {"error": {
@@ -118,17 +170,29 @@ async def chat(request: Request):
 
         body["model"] = chosen
         note = "" if chosen == requested else f" (normalised from {requested!r})"
-        print(f"[DuCorn Router] → {chosen}{note}", flush=True)
+        capped = _cap_local_output(body, chosen)
+        print(f"[DuCorn Router] → {chosen}{note}"
+              + (f"  [{capped}]" if capped else ""), flush=True)
 
+        budget = _timeout_for(chosen)
+        started = time.monotonic()
         try:
             resp = await client.post(f"{LITELLM_URL}/v1/chat/completions",
-                                     json=body, headers=headers)
+                                     json=body, headers=headers, timeout=budget)
         except httpx.TimeoutException as e:
-            print(f"[DuCorn Router] upstream timeout: {e}", flush=True)
+            waited = time.monotonic() - started
+            print(f"[DuCorn Router] upstream timeout after {waited:.0f}s "
+                  f"(budget {budget:.0f}s) serving {chosen!r}: {e}", flush=True)
             return JSONResponse(
                 {"error": {"type": "upstream_timeout",
                            "message": f"LiteLLM at {LITELLM_URL} did not respond "
-                                      f"in time serving {chosen!r}."}},
+                                      f"within {budget:.0f}s serving {chosen!r}.",
+                           "waited_seconds": round(waited, 1),
+                           "budget_seconds": budget,
+                           "hint": "For a local model this usually means Ollama "
+                                   "is reloading or queued behind another run. "
+                                   "Raise DUCORN_LOCAL_TIMEOUT only after "
+                                   "checking the router's ⏱ lines."}},
                 status_code=504)
         except httpx.HTTPError as e:
             # "LiteLLM is down", "your request was malformed" and "the empty
@@ -142,6 +206,16 @@ async def chat(request: Request):
                                    "tail ~/DC/logs/litellm.log. LiteLLM will not "
                                    "start without PostgreSQL."}},
                 status_code=502)
+
+    # The number nobody was writing down. Every "is it looping / is Ollama
+    # overloaded / is the context too long" question this week was one line of
+    # timing data away from an answer.
+    elapsed = time.monotonic() - started
+    if elapsed > budget * 0.5:
+        print(f"[DuCorn Router] ⏱ SLOW {chosen} {elapsed:.0f}s of a "
+              f"{budget:.0f}s budget", flush=True)
+    else:
+        print(f"[DuCorn Router] ⏱ {chosen} {elapsed:.1f}s", flush=True)
 
     try:
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
