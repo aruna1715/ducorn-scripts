@@ -10,6 +10,36 @@ from contextlib import contextmanager
 
 DB_URL = "postgresql://localhost/ducorn"
 
+# ── status contracts ─────────────────────────────────────────────────────────
+#
+# Which statuses the code may write to each table. The other side of this
+# contract is a CHECK constraint inside PostgreSQL, and on 1 September the two
+# disagreed: gate 2 marks losing design variants 'superseded', the constraint
+# allowed only pending/approved/rejected, and the mismatch surfaced as a failed
+# approval on a paid run — because nothing compared them.
+#
+# scripts/prove_db_contracts.py does that comparison now, in both directions,
+# reading the constraints out of the catalog rather than from a list.
+#
+# Adding a status here without a migration makes that check fail, which is the
+# point. Adding one to the database without adding it here makes it report
+# dead vocabulary, which is milder and also worth knowing.
+STATUS_CONTRACTS = {
+    "approval_requests": (
+        "pending",           # raised, waiting on a founder
+        "approved",          # the decision that releases next_phase
+        "rejected",          # the founder said no
+        "superseded",        # another variant of the same gate was chosen
+    ),
+    "agent_activity": (
+        "started",
+        "completed",
+        "failed",
+        "blocked",
+    ),
+}
+
+
 @contextmanager
 def get_conn():
     conn = psycopg2.connect(DB_URL)
