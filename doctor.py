@@ -27,6 +27,7 @@ breaks.
 """
 import argparse
 import ast
+from datetime import datetime
 import json
 import os
 import shutil
@@ -445,7 +446,7 @@ def check_deploy():
         "print(f'{cands[0].name} -> {how}')")
     check("deploy", "a product runs under its own venv", ok,
           out[-90:] if not ok else out,
-          "python3 scripts/patch_deploy_venv.py")
+          "python3 scripts/applied/patch_deploy_venv.py")
 
     # A page plus an API is two services. One product_type meant the API half
     # was never deployed and /health 404'd from a static file server.
@@ -463,7 +464,7 @@ def check_deploy():
         "print('page+api -> ' + ','.join(roles))")
     check("deploy", "a page + an API plans as two services", ok,
           out[-90:] if not ok else out,
-          "python3 scripts/patch_deploy_services.py")
+          "python3 scripts/applied/patch_deploy_services.py")
 
     # Prevention is the shared module; this is detection. Both modules are
     # imported for real and asked where a product's interpreter is. A
@@ -486,7 +487,7 @@ def check_deploy():
         "'/Users/ducorn/DC/ducorn-products/products/', ''))")
     check("deploy", "QA and deploy resolve the same interpreter", ok,
           out[-100:] if not ok else out,
-          "python3 scripts/patch_shared_paths.py")
+          "python3 scripts/applied/patch_shared_paths.py")
 
     # A static server has no /health. `_probe('/health') or _probe('/')`
     # short-circuited on a truthy 404, so the fallback never ran once.
@@ -494,13 +495,13 @@ def check_deploy():
     check("deploy", "the smoke test tries each health path",
           smoke_tries_every_path(src),
           "" if "def smoke(" in src else "smoke() missing",
-          "python3 scripts/patch_deploy_services.py")
+          "python3 scripts/applied/patch_deploy_services.py")
 
     # A .env.example default is a default. Discarding it turned optional,
     # documented config into an aborted deploy.
     check("deploy", "a shipped .env.example default is honoured",
           "_is_placeholder" in src,
-          "", "python3 scripts/patch_deploy_env.py")
+          "", "python3 scripts/applied/patch_deploy_env.py")
 
 
 def check_regressions():
@@ -514,12 +515,12 @@ def check_regressions():
     check("regressions", "a QA rejection reaches the next build (wired)",
           "def prior_failure_context" in src
           and "context_parts.insert(0, _rejection)" in src,
-          "", "python3 scripts/patch_qa_feedback.py")
+          "", "python3 scripts/applied/patch_qa_feedback.py")
     # ...and the cache cannot swallow it: skill 04 was a cached pass, so
     # without the rejection inside the fingerprint the builder never re-ran.
     check("regressions", "a rejection invalidates the cached pass (wired)",
           "skill_fingerprint(skill_num, skill_name, topic, _rejection)" in src,
-          "", "python3 scripts/patch_qa_feedback.py")
+          "", "python3 scripts/applied/patch_qa_feedback.py")
 
     api = DC / "ducorn-products/products/ducorn-activity-api/main.py"
     asrc = api.read_text(encoding="utf-8") if api.is_file() else ""
@@ -528,7 +529,7 @@ def check_regressions():
     check("regressions", "a document is only served to its owner (wired)",
           "def doc_owner" in asrc
           and 'doc_path = f"{docs_dir}/{filename}"' not in _code_only(asrc),
-          "", "python3 scripts/patch_doc_isolation.py")
+          "", "python3 scripts/applied/patch_doc_isolation.py")
     # /chat called Ollama with llama3.1 hardcoded, so the model you chose for
     # ATLAS had never once answered you.
     check("regressions", "ATLAS uses the model the switcher names (wired)",
@@ -536,7 +537,7 @@ def check_regressions():
           and _code_only(asrc).count("http://localhost:11434/api/generate") <= 1,
           f"{_code_only(asrc).count(chr(104) + 'ttp://localhost:11434/api/generate')}"
           f" direct Ollama call(s) left" if asrc else "",
-          "python3 scripts/patch_atlas_failure.py")
+          "python3 scripts/applied/patch_atlas_failure.py")
 
     flow = DC / "ducorn/flows/langgraph_flow.py"
     fsrc = flow.read_text(encoding="utf-8") if flow.is_file() else ""
@@ -545,7 +546,7 @@ def check_regressions():
     check("regressions", "the build reports the push it actually made",
           "def _git_publish" in fsrc
           and "✅ Files committed to GitHub" not in _code_only(fsrc),
-          "", "python3 scripts/patch_build_commit.py")
+          "", "python3 scripts/applied/patch_build_commit.py")
 
     # QA builds <product>/.venv and deploy runs from it, so every product has
     # one. 244 MB of pip output went into a commit and blocked every push.
@@ -646,8 +647,39 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--spend", action="store_true", help="only today's money")
     ap.add_argument("--quiet", action="store_true", help="only what is wrong")
+    ap.add_argument("--json", action="store_true",
+                    help="machine-readable, for the dashboard")
     args = ap.parse_args()
     _quiet = args.quiet
+
+    if args.json:
+        # Every check prints as it goes, and several print extra detail of
+        # their own. Rather than thread a flag through all of them, the whole
+        # run is captured — nothing can leak into the JSON by being added
+        # later and forgetting.
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            check_services()
+            check_databases()
+            check_imports()
+            check_browser()
+            check_deploy()
+            check_regressions()
+            check_models()
+            check_keys_and_spend()
+            check_hygiene()
+        bad = [r for r in results if not r["ok"]]
+        print(json.dumps({
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "total": len(results),
+            "failed": len(bad),
+            "healthy": not bad,
+            "checks": results,
+            "transcript": buf.getvalue()[-8000:],
+        }))
+        return 1 if bad else 0
 
     print("DuCorn doctor — every check runs the real thing\n")
 

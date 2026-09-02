@@ -9,3 +9,8 @@ __pycache__/
 # version, and these are unversioned copies that never get cleaned up.
 *.backup-*
 *.stale-*
+
+# Timestamped copies written before a patch edits a file.
+# Git is the version history; these are not.
+_backups/
+*.backup-*

@@ -267,7 +267,7 @@ for path, b in backups.items():
 print()
 print("Restart the API, then:")
 print("  launchctl kickstart -k gui/$(id -u)/com.ducorn.api")
-print("  curl -s -XPOST -H \\"x-api-key: $DUCORN_API_TOKEN\\" "
-      "localhost:8000/health/run")
-print("  sleep 30 && curl -s -H \\"x-api-key: $DUCORN_API_TOKEN\\" "
-      "localhost:8000/health/report | head -c 300")
+print('  curl -s -XPOST -H "x-api-key: $DUCORN_API_TOKEN" '
+      'localhost:8000/health/run')
+print('  sleep 30 && curl -s -H "x-api-key: $DUCORN_API_TOKEN" '
+      'localhost:8000/health/report | head -c 300')
