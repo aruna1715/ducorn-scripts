@@ -25,17 +25,37 @@ DB_URL = "postgresql://localhost/ducorn"
 # point. Adding one to the database without adding it here makes it report
 # dead vocabulary, which is milder and also worth knowing.
 STATUS_CONTRACTS = {
-    "approval_requests": (
-        "pending",           # raised, waiting on a founder
-        "approved",          # the decision that releases next_phase
-        "rejected",          # the founder said no
-        "superseded",        # another variant of the same gate was chosen
-    ),
     "agent_activity": (
         "started",
         "completed",
         "failed",
         "blocked",
+    ),
+    "approval_requests": (
+        "pending",
+        "approved",
+        "rejected",
+        "superseded",
+        "cancelled",
+    ),
+    "pipeline_runs": (
+        "created",
+        "started",
+        "running",
+        "awaiting_approval",
+        "needs_intervention",
+        "stopped",
+        "complete",
+        "failed",
+        "archived",
+        "cancelled",
+    ),
+    "pipeline_skill_runs": (
+        "waiting",
+        "running",
+        "complete",
+        "failed",
+        "skipped",
     ),
 }
 

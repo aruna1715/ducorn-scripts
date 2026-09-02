@@ -161,6 +161,32 @@ for info in live.values():
 
 # Advisory. It cannot tell which table a literal is destined for, so it only
 # reports words that no constraint and no contract has heard of at all.
+# Table-aware, because "is this word legal anywhere?" is not the question.
+# `known` above is the union across every table, so 'cancelled' — legal on some
+# other table — silenced this check while /pipeline/stop wrote it to
+# approval_requests, which refuses it. The bug sat in a scanned file, matched by
+# the pattern, and passed.
+_UPDATE_STATUS = re.compile(
+    r"UPDATE\s+(\w+)\s+SET\s+status\s*=\s*'([a-z_]+)'", re.I)
+
+print("  · statuses written to a named table:")
+_wrong = 0
+for _src in SOURCES:
+    if not _src.is_file():
+        continue
+    for _m in _UPDATE_STATUS.finditer(_src.read_text(errors="replace")):
+        _table, _value = _m.group(1), _m.group(2).lower()
+        _allowed = (live.get(_table, {}) or {}).get("allowed")
+        if _allowed is None:
+            _allowed = set(STATUS_CONTRACTS.get(_table, ()))
+        if _allowed and _value not in _allowed:
+            _wrong += 1
+            print(f"       FAIL {_src.name}: UPDATE {_table} SET "
+                  f"status='{_value}' — that table refuses it")
+            failures.append(f"{_table} refuses {_value!r} written in {_src.name}")
+if not _wrong:
+    print("       ok   every table-qualified status write is permitted")
+
 stray = {}
 for src in SOURCES:
     if not src.is_file():

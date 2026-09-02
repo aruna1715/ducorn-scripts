@@ -78,7 +78,12 @@ def normalise(name):
 # the caller retry inside its own budget. Remote models keep the long one: a
 # large completion legitimately takes minutes.
 LOCAL_TIMEOUT = float(os.environ.get("DUCORN_LOCAL_TIMEOUT", "150"))
-REMOTE_TIMEOUT = float(os.environ.get("DUCORN_REMOTE_TIMEOUT", "300"))
+# 420, not 300. A design render was measured at 211s — 70% of the old
+# budget, on a call that succeeded. A slightly larger page or a slower
+# afternoon and the wire is cut on work that was going to finish, then
+# retried at full price. This is a ceiling, not a target: nothing gets
+# slower because it moved.
+REMOTE_TIMEOUT = float(os.environ.get("DUCORN_REMOTE_TIMEOUT", "420"))
 
 
 # The longest answer a local model may produce.
