@@ -57,7 +57,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "def _git_publish" in s:
-    sys.exit("Already patched — the commit reports what happened.")
+    print("Already patched — the commit reports what happened.")
+    sys.exit(0)
 
 applied = []
 

@@ -56,7 +56,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "BRIEF IS BINDING" in s:
-    sys.exit("Already patched — node_research carries the brief.")
+    print("Already patched — node_research carries the brief.")
+    sys.exit(0)
 
 lines = s.splitlines(keepends=True)
 

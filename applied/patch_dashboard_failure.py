@@ -51,7 +51,8 @@ PAGE = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-dashboard/index.ht
 s = PAGE.read_text(encoding="utf-8")
 
 if "productFailure" in s:
-    sys.exit("Already patched — the dashboard explains failures.")
+    print("Already patched — the dashboard explains failures.")
+    sys.exit(0)
 if "panel-health" not in s:
     sys.exit("Apply patch_dashboard_health.py first. NOTHING WRITTEN.")
 

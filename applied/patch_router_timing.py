@@ -62,7 +62,8 @@ PROXY = Path("/Users/ducorn/DC/scripts/ducorn_proxy.py")
 s = PROXY.read_text(encoding="utf-8")
 
 if "_timeout_for" in s:
-    sys.exit("Already patched — the router has per-model timeouts.")
+    print("Already patched — the router has per-model timeouts.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

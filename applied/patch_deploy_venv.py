@@ -62,7 +62,8 @@ TOOL = Path("/Users/ducorn/DC/ducorn/tools/DuCornDeployTool.py")
 s = TOOL.read_text(encoding="utf-8")
 
 if "def product_python" in s:
-    sys.exit("Already patched — products deploy with their own interpreter.")
+    print("Already patched — products deploy with their own interpreter.")
+    sys.exit(0)
 if "def plan_services" not in s:
     sys.exit("Apply patch_deploy_services.py first. NOTHING WRITTEN.")
 

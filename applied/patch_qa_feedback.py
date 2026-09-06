@@ -89,7 +89,8 @@ SKILL = Path("/Users/ducorn/DC/ducorn/skill_runner.py")
 s = SKILL.read_text(encoding="utf-8")
 
 if "PRIOR_FAILURE_LIMIT" in s:
-    sys.exit("Already patched — earlier failures reach the next build.")
+    print("Already patched — earlier failures reach the next build.")
+    sys.exit(0)
 if "skill_fingerprint" not in s:
     sys.exit("Apply patch_checkpoint_prompt.py first — the rejection has to go "
              "into the fingerprint or the cache eats it. NOTHING WRITTEN.")

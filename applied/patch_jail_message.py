@@ -74,7 +74,8 @@ def swap(path, label, text, old, new):
 # ═══════════════════════════════════════════════════════════════════════════
 j = JAIL.read_text(encoding="utf-8")
 if "def visible_files" in j:
-    sys.exit("Already patched — visible_files exists.")
+    print("Already patched — visible_files exists.")
+    sys.exit(0)
 
 j = swap(JAIL, "listing helper", j, '''class PathEscape(Exception):
     pass''', '''class PathEscape(Exception):
@@ -127,7 +128,8 @@ j = swap(JAIL, "refusal message", j, '''    raise PathEscape(
 # ═══════════════════════════════════════════════════════════════════════════
 t = TOOLS.read_text(encoding="utf-8")
 if "visible_files" in t:
-    sys.exit("Already patched — jailed_tools imports visible_files.")
+    print("Already patched — jailed_tools imports visible_files.")
+    sys.exit(0)
 
 t = swap(TOOLS, "import", t,
          "from tools.product_jail import resolve_in_jail, PathEscape",

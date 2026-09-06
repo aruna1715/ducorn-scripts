@@ -37,7 +37,8 @@ GEN = Path("/Users/ducorn/DC/ducorn/tools/generate_design.py")
 s = GEN.read_text(encoding="utf-8")
 
 if "except ImportError" in s and "tools.design_spec" in s:
-    sys.exit("Already patched.")
+    print("Already patched.")
+    sys.exit(0)
 
 OLD = "from design_spec import ("
 if s.count(OLD) != 1:

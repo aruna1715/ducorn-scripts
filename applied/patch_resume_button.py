@@ -25,7 +25,8 @@ DASH = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-dashboard/index.ht
 s = DASH.read_text(encoding="utf-8")
 
 if "runIsResumable" in s:
-    sys.exit("Already patched.")
+    print("Already patched.")
+    sys.exit(0)
 
 OLD = '''  // Show/hide RESUME button based on any failed skills
   const hasFailed = data.skills && data.skills.some(s => s.status === 'failed');

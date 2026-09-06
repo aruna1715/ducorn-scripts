@@ -55,7 +55,8 @@ TEST = Path("/Users/ducorn/DC/scripts/test_writer_done.py")
 
 s = TOOL.read_text(encoding="utf-8")
 if "_WRITES" in s:
-    sys.exit("Already patched — the writer tracks its writes.")
+    print("Already patched — the writer tracks its writes.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

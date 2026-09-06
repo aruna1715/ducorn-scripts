@@ -54,7 +54,8 @@ DB = Path("/Users/ducorn/DC/scripts/ducorn_db.py")
 s = DB.read_text(encoding="utf-8")
 
 if "STATUS_CONTRACTS" in s:
-    sys.exit("Already patched — ducorn_db declares the status contracts.")
+    print("Already patched — ducorn_db declares the status contracts.")
+    sys.exit(0)
 
 # The decorator, not just the def. Anchoring on "def get_conn():" alone
 # inserts between @contextmanager and the function it decorates, which is a

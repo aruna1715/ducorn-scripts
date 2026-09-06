@@ -74,7 +74,8 @@ if "_timeout_for" not in s:
     sys.exit("Apply patch_router_timing.py first — this builds on it. "
              "NOTHING WRITTEN.")
 if "LOCAL_MAX_TOKENS" in s:
-    sys.exit("Already patched — local generations are capped.")
+    print("Already patched — local generations are capped.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

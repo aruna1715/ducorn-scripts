@@ -46,7 +46,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "_graph_phases" in s:
-    sys.exit("Already patched — --phase derives from the graph.")
+    print("Already patched — --phase derives from the graph.")
+    sys.exit(0)
 
 # ── 1. the deriving helper, right after the graph that is its source ─────────
 OLD_TAIL = "    return graph.compile(checkpointer=checkpointer)\n"

@@ -83,7 +83,8 @@ TOOL = Path("/Users/ducorn/DC/ducorn/tools/DuCornDeployTool.py")
 s = TOOL.read_text(encoding="utf-8")
 
 if "_is_placeholder" in s:
-    sys.exit("Already patched — shipped defaults are honoured.")
+    print("Already patched — shipped defaults are honoured.")
+    sys.exit(0)
 
 applied = []
 

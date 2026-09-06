@@ -54,7 +54,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = API.read_text(encoding="utf-8")
 
 if "_WHERE_FILES_GO" in s:
-    sys.exit("Already patched — the wizard names the right destination.")
+    print("Already patched — the wizard names the right destination.")
+    sys.exit(0)
 if "Save to products/[kebab-case-name]" not in s:
     sys.exit("The wizard's save line is not where expected. NOTHING WRITTEN.")
 

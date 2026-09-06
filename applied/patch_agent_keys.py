@@ -96,7 +96,8 @@ def _use_key(agent: str) -> None:
 # ── langgraph_flow ───────────────────────────────────────────────────────────
 f = FLOW.read_text(encoding="utf-8")
 if "_key_for" in f:
-    sys.exit("Already patched — _key_for is in langgraph_flow.py.")
+    print("Already patched — _key_for is in langgraph_flow.py.")
+    sys.exit(0)
 
 f = swap(FLOW, "helper", f, "def _get_agent_models() -> dict:", HELPER + "def _get_agent_models() -> dict:")
 
@@ -131,7 +132,8 @@ edits.append((FLOW, f))
 # ── skill_runner ─────────────────────────────────────────────────────────────
 sk = SKILL.read_text(encoding="utf-8")
 if "_key_for" in sk:
-    sys.exit("Already patched — _key_for is in skill_runner.py.")
+    print("Already patched — _key_for is in skill_runner.py.")
+    sys.exit(0)
 
 sk = swap(SKILL, "helper", sk,
           '''def _local_only() -> bool:''', HELPER + '''def _local_only() -> bool:''')

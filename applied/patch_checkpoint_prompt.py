@@ -67,7 +67,8 @@ SKILL = Path("/Users/ducorn/DC/ducorn/skill_runner.py")
 s = SKILL.read_text(encoding="utf-8")
 
 if "prompt_sha" in s:
-    sys.exit("Already patched — the checkpoint records its prompt.")
+    print("Already patched — the checkpoint records its prompt.")
+    sys.exit(0)
 if "_skill_text" not in s:
     sys.exit("Apply patch_skill_guidelines.py first — the fingerprint is of "
              "_skill_text's output. NOTHING WRITTEN.")

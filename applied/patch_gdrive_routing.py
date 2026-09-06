@@ -34,7 +34,8 @@ if not ROUTING.exists():
 
 s = SYNC.read_text(encoding="utf-8")
 if "drive_routing" in s:
-    sys.exit("Already patched — drive_routing is imported.")
+    print("Already patched — drive_routing is imported.")
+    sys.exit(0)
 
 applied = []
 

@@ -65,7 +65,8 @@ tool_s = TOOL.read_text(encoding="utf-8")
 flow_s = FLOW.read_text(encoding="utf-8")
 
 if "def lan_ip" in tool_s:
-    sys.exit("Already patched — the product's URL is published.")
+    print("Already patched — the product's URL is published.")
+    sys.exit(0)
 if "def plan_services" not in tool_s:
     sys.exit("Apply patch_deploy_services.py first. NOTHING WRITTEN.")
 if "🎉 *{topic} is LIVE!*" not in flow_s:

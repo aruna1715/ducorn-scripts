@@ -66,7 +66,8 @@ MAIN = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.
 s = MAIN.read_text(encoding="utf-8")
 
 if '"BRIEF"' in s:
-    sys.exit("Already patched — BRIEF is in the switcher.")
+    print("Already patched — BRIEF is in the switcher.")
+    sys.exit(0)
 
 applied = []
 

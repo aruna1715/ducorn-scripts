@@ -58,7 +58,8 @@ TOOL = Path("/Users/ducorn/DC/ducorn/tools/DuCornDeployTool.py")
 s = TOOL.read_text(encoding="utf-8")
 
 if "def plan_services" in s:
-    sys.exit("Already patched — a product may be several services.")
+    print("Already patched — a product may be several services.")
+    sys.exit(0)
 if "_is_placeholder" not in s:
     sys.exit("Apply patch_deploy_env.py first — this builds on the env "
              "resolution it adds. NOTHING WRITTEN.")

@@ -54,7 +54,8 @@ ENGINE = Path("/Users/ducorn/DC/ducorn-products/products/"
 
 s = ENGINE.read_text(encoding="utf-8")
 if "DUCORN_FOOTER_TEMPLATE" in s:
-    sys.exit("Already patched — the footer template is present.")
+    print("Already patched — the footer template is present.")
+    sys.exit(0)
 
 applied = []
 

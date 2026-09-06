@@ -54,7 +54,8 @@ skill_s = SKILL.read_text(encoding="utf-8")
 doc_s = DOCTOR.read_text(encoding="utf-8")
 
 if "from product_paths import" in tool_s:
-    sys.exit("Already patched — the venv path has one definition.")
+    print("Already patched — the venv path has one definition.")
+    sys.exit(0)
 if "def product_python" not in tool_s:
     sys.exit("Apply patch_deploy_venv.py first. NOTHING WRITTEN.")
 

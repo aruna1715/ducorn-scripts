@@ -98,7 +98,8 @@ def swap(path, label, text, old, new, count=1):
 # ═══════════════════════════════════════════════════════════════════════════
 p = PIPE.read_text(encoding="utf-8")
 if "def seed_brief" in p:
-    sys.exit("Already patched — seed_brief exists in test_pipeline.py.")
+    print("Already patched — seed_brief exists in test_pipeline.py.")
+    sys.exit(0)
 
 # ── the helper ───────────────────────────────────────────────────────────────
 p = swap(PIPE, "seed_brief helper", p, '''def base_env():

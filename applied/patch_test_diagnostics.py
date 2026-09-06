@@ -44,7 +44,8 @@ if "_run_flow" not in p:
     sys.exit("patch_test_brief.py has not been applied — _run_flow is missing. "
              "NOTHING WRITTEN.")
 if "router.log" in p:
-    sys.exit("Already patched — the timeout report reads router.log.")
+    print("Already patched — the timeout report reads router.log.")
+    sys.exit(0)
 
 OLD = '''    slug = argv[2]
     try:

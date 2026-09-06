@@ -47,7 +47,8 @@ s = ENGINE.read_text(encoding="utf-8")
 if "DUCORN_FOOTER_TEMPLATE" not in s:
     sys.exit("Run patch_pdf_pagination.py first.")
 if "_render_two_pass" in s:
-    sys.exit("Already patched — _render_two_pass is present.")
+    print("Already patched — _render_two_pass is present.")
+    sys.exit(0)
 
 applied = []
 

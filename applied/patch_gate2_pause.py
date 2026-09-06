@@ -70,7 +70,8 @@ def swap(path, label, text, old, new):
 
 f = FLOW.read_text(encoding="utf-8")
 if 'node.startswith("gate_")' in f:
-    sys.exit("Already patched — the gate check is derived.")
+    print("Already patched — the gate check is derived.")
+    sys.exit(0)
 
 # ── gate detection derives from the name ─────────────────────────────────────
 f = swap(FLOW, "gate pause", f,
@@ -105,7 +106,8 @@ edits.append((FLOW, f))
 
 sk = SKILL.read_text(encoding="utf-8")
 if "max_iter=15" in sk:
-    sys.exit("Already patched — skill_runner max_iter is 15.")
+    print("Already patched — skill_runner max_iter is 15.")
+    sys.exit(0)
 
 sk = swap(SKILL, "skill max_iter", sk, "        max_iter=3", '''        # 3 was barely enough to read a PRD, think and write a file, and
         # exceeding it is fatal rather than graceful: CrewAI forces a final

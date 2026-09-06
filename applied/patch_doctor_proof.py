@@ -47,7 +47,8 @@ DOCTOR = Path("/Users/ducorn/DC/scripts/doctor.py")
 s = DOCTOR.read_text(encoding="utf-8")
 
 if "def check_imports" in s:
-    sys.exit("Already patched — doctor proves the closed classes.")
+    print("Already patched — doctor proves the closed classes.")
+    sys.exit(0)
 
 applied = []
 

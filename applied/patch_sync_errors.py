@@ -25,7 +25,8 @@ SYNC = Path("/Users/ducorn/DC/scripts/gdrive_sync.py")
 s = SYNC.read_text(encoding="utf-8")
 
 if "detail" in s and "Conversion failed" in s and "resp.text" in s:
-    sys.exit("Already patched — the response body is printed.")
+    print("Already patched — the response body is printed.")
+    sys.exit(0)
 
 OLD = '''        else:
             print(f"  ❌ Conversion failed: {resp.status_code}")

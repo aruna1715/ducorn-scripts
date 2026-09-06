@@ -68,7 +68,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "DUCORN_ENVIRONMENT" in s:
-    sys.exit("Already patched — a production run cannot silently downgrade.")
+    print("Already patched — a production run cannot silently downgrade.")
+    sys.exit(0)
 
 applied = []
 

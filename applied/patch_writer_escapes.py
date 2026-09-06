@@ -42,7 +42,8 @@ TOOL = Path("/Users/ducorn/DC/ducorn/tools/DuCornWriterTool.py")
 s = TOOL.read_text(encoding="utf-8")
 
 if "looks_escaped" in s:
-    sys.exit("Already patched — looks_escaped() is present.")
+    print("Already patched — looks_escaped() is present.")
+    sys.exit(0)
 
 HELPERS = '''
 # ── Escape detection ─────────────────────────────────────────────────────────

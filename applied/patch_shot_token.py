@@ -79,7 +79,8 @@ def swap(path, label, text, old, new):
 # ═══════════════════════════════════════════════════════════════════════════
 f = FLOW.read_text(encoding="utf-8")
 if '"token": token' in f:
-    sys.exit("Already patched — the variant row carries its token.")
+    print("Already patched — the variant row carries its token.")
+    sys.exit(0)
 
 f = swap(FLOW, "row token", f, '''                "url": f"{DESIGN_LINK_BASE}/d/{token}",
                 "problems": v.get("problems") or [],''',
@@ -120,7 +121,8 @@ edits.append((FLOW, f))
 # ═══════════════════════════════════════════════════════════════════════════
 g = GEN.read_text(encoding="utf-8")
 if "_TESTID_OK" in g:
-    sys.exit("Already patched — dynamic test ids are recognised.")
+    print("Already patched — dynamic test ids are recognised.")
+    sys.exit(0)
 
 g = swap(GEN, "kebab check", g, '''    bad = [i for i in ids if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", i)]
     if bad:

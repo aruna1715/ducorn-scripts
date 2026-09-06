@@ -48,7 +48,8 @@ PAGE = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-dashboard/index.ht
 s = PAGE.read_text(encoding="utf-8")
 
 if "panel-health" in s:
-    sys.exit("Already patched — the dashboard shows system health.")
+    print("Already patched — the dashboard shows system health.")
+    sys.exit(0)
 for need in ('<div class="intel-sec" id="panel-kpi">', "async function pollAll() {"):
     if s.count(need) != 1:
         sys.exit(f"ANCHOR MISS: {need!r} found {s.count(need)} times. "

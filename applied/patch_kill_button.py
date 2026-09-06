@@ -26,7 +26,8 @@ DASH = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-dashboard/index.ht
 s = DASH.read_text(encoding="utf-8")
 
 if "killPipeline" in s:
-    sys.exit("Already patched — killPipeline is present.")
+    print("Already patched — killPipeline is present.")
+    sys.exit(0)
 
 applied = []
 

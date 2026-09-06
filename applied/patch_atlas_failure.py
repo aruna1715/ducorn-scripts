@@ -84,7 +84,8 @@ API = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.p
 s = API.read_text(encoding="utf-8")
 
 if "def failure_context" in s:
-    sys.exit("Already patched — ATLAS can see failures.")
+    print("Already patched — ATLAS can see failures.")
+    sys.exit(0)
 
 applied = []
 

@@ -49,7 +49,8 @@ SKILL = Path("/Users/ducorn/DC/ducorn/skill_runner.py")
 s = SKILL.read_text(encoding="utf-8")
 
 if "_skill_text" in s:
-    sys.exit("Already patched — the review skills get the guidelines.")
+    print("Already patched — the review skills get the guidelines.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

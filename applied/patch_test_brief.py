@@ -58,7 +58,8 @@ PIPE = Path("/Users/ducorn/DC/ducorn/test_pipeline.py")
 p = PIPE.read_text(encoding="utf-8")
 
 if "_run_flow" in p:
-    sys.exit("Already patched — _run_flow exists.")
+    print("Already patched — _run_flow exists.")
+    sys.exit(0)
 
 applied = []
 

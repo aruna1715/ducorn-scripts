@@ -70,7 +70,8 @@ API = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.p
 s = API.read_text(encoding="utf-8")
 
 if "def doc_owner" in s:
-    sys.exit("Already patched — documents are owned.")
+    print("Already patched — documents are owned.")
+    sys.exit(0)
 if "def known_slug" not in s:
     sys.exit("Apply patch_atlas_failure.py first — this builds on known_slug(). "
              "NOTHING WRITTEN.")

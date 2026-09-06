@@ -50,7 +50,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "node_design" in s:
-    sys.exit("Already patched — node_design is present.")
+    print("Already patched — node_design is present.")
+    sys.exit(0)
 if "_LOCAL_MODEL" not in s:
     sys.exit("Run patch_agent_models.py first — this patch needs _local_only() "
              "and DESIGN_MODEL from it.")

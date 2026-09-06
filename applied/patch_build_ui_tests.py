@@ -72,7 +72,8 @@ SKILL = Path("/Users/ducorn/DC/ducorn/skill_runner.py")
 s = SKILL.read_text(encoding="utf-8")
 
 if "UI_REFERENCE_FRACTION" in s:
-    sys.exit("Already patched — the build skill is told the UI test bar.")
+    print("Already patched — the build skill is told the UI test bar.")
+    sys.exit(0)
 if "_skill_text" not in s:
     sys.exit("Apply patch_skill_guidelines.py first — this extends _skill_text. "
              "NOTHING WRITTEN.")

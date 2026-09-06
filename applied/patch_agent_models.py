@@ -45,7 +45,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "_LOCAL_MODEL" in s:
-    sys.exit("Already patched — _LOCAL_MODEL is present.")
+    print("Already patched — _LOCAL_MODEL is present.")
+    sys.exit(0)
 
 OLD = '''def _get_agent_models() -> dict:
     """Read agent model config from API — respects dashboard model switcher."""

@@ -39,7 +39,8 @@ SYNC = Path("/Users/ducorn/DC/scripts/gdrive_sync.py")
 s = SYNC.read_text(encoding="utf-8")
 
 if "def convert_md_to_pdf(md_path: Path, force: bool = False)" in s:
-    sys.exit("Already patched — convert_md_to_pdf takes force.")
+    print("Already patched — convert_md_to_pdf takes force.")
+    sys.exit(0)
 
 applied = []
 

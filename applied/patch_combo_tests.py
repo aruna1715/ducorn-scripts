@@ -78,7 +78,8 @@ PIPE = Path("/Users/ducorn/DC/ducorn/test_pipeline.py")
 src = PIPE.read_text(encoding="utf-8")
 
 if "_build_calls" in src:
-    sys.exit("Already patched — _build_calls exists.")
+    print("Already patched — _build_calls exists.")
+    sys.exit(0)
 
 TARGETS = ["_run_pipeline_combo",
            "test_combo_simple_fast_crewai",

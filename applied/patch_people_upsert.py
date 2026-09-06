@@ -39,7 +39,8 @@ API = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.p
 s = API.read_text(encoding="utf-8")
 
 if "_remember_person" in s:
-    sys.exit("Already patched — _remember_person is present.")
+    print("Already patched — _remember_person is present.")
+    sys.exit(0)
 if "display_name_for" not in s:
     sys.exit("Run patch_display_names.py first.")
 

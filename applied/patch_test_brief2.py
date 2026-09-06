@@ -45,7 +45,8 @@ PIPE = Path("/Users/ducorn/DC/ducorn/test_pipeline.py")
 p = PIPE.read_text(encoding="utf-8")
 
 if "unitconv" in p:
-    sys.exit("Already patched — the fixture brief is v3.")
+    print("Already patched — the fixture brief is v3.")
+    sys.exit(0)
 
 OLD = '''    seed = (f"# {topic}\\n\\n"
             f"Fixture product for the DuCorn test suite. Never shipped, never "

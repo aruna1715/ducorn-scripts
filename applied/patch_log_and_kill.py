@@ -54,7 +54,8 @@ API = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.p
 s = API.read_text(encoding="utf-8")
 
 if "pipeline_kill" in s:
-    sys.exit("Already patched — pipeline_kill is present.")
+    print("Already patched — pipeline_kill is present.")
+    sys.exit(0)
 
 applied = []
 

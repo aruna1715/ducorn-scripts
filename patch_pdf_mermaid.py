@@ -57,7 +57,8 @@ MERMAID_JS = PRODUCT / "app/static/mermaid.min.js"
 s = ENGINE.read_text(encoding="utf-8")
 
 if "_mermaid_ready" in s:
-    sys.exit("Already patched — diagrams render in the PDF.")
+    print("Already patched — diagrams render in the PDF.")
+    sys.exit(0)
 if not MERMAID_JS.is_file():
     sys.exit(f"{MERMAID_JS} is missing.\nRun: python3 scripts/vendor_mermaid.py "
              f"--apply\nNOTHING WRITTEN.")

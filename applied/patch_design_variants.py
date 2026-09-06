@@ -57,7 +57,8 @@ def swap(path, label, text, old, new):
 # ── 1. langgraph_flow ────────────────────────────────────────────────────────
 f = FLOW.read_text(encoding="utf-8")
 if "design_variants" in f and "view_token" in f:
-    sys.exit("Already patched — view_token is in langgraph_flow.py.")
+    print("Already patched — view_token is in langgraph_flow.py.")
+    sys.exit(0)
 if "node_design" not in f:
     sys.exit("Run patch_design_node.py first.")
 
@@ -263,7 +264,8 @@ edits.append((FLOW, f))
 # ── 2. main.py — serve one variant by token ──────────────────────────────────
 a = API.read_text(encoding="utf-8")
 if "/d/{token}" in a:
-    sys.exit("Already patched — the design view endpoint is present.")
+    print("Already patched — the design view endpoint is present.")
+    sys.exit(0)
 
 a = swap(API, "exempt path", a,
 '''    if request.method == "OPTIONS" or request.url.path in [
@@ -340,7 +342,8 @@ edits.append((API, a))
 # ── 3. slack_bot — approving a variant records the choice ────────────────────
 s = SLACK.read_text(encoding="utf-8")
 if "design_choice" in s:
-    sys.exit("Already patched — design_choice is in slack_bot.py.")
+    print("Already patched — design_choice is in slack_bot.py.")
+    sys.exit(0)
 
 s = swap(SLACK, "select doc path", s,
 '''            cur.execute("SELECT title, description, next_phase, product_slug "

@@ -78,7 +78,8 @@ TEST = Path("/Users/ducorn/DC/scripts/test_screenshot.py")
 
 f = FLOW.read_text(encoding="utf-8")
 if "shot_path" in f:
-    sys.exit("Already patched — gate 2 uploads screenshots.")
+    print("Already patched — gate 2 uploads screenshots.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

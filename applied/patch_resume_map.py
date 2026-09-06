@@ -45,7 +45,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if '"design": "gate_1"' in s:
-    sys.exit("Already patched — design is in RESUME_AFTER.")
+    print("Already patched — design is in RESUME_AFTER.")
+    sys.exit(0)
 
 OLD = '''            RESUME_AFTER = {
                 "gate_1": "research",

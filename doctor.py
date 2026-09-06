@@ -219,11 +219,28 @@ def check_keys_and_spend(spend_only=False):
             print(f"       {model:28} {calls:5} calls  ${float(spend):7.2f}"
                   f"  {share:4.0f}%")
 
-    # Not a pass/fail — a number a person judges. Flagged only when it is
-    # large enough that nobody should discover it by accident.
-    check("spend", "today's spend under $25", today < 25,
-          f"${today:,.2f}",
-          "python3 scripts/litellm_budget.py --key ducorn-rex   (per-agent caps)")
+    # The question is not "is spend high", it is "will the pipeline start".
+    # /budget/check is what /pipeline/start consults, so doctor asks that
+    # rather than holding a number of its own — which it did, set to 25, while
+    # the real limit was 5 and the start button was refusing every run.
+    try:
+        b = get_json(f"{API}/budget/check")
+        limit = float(b.get("daily_limit", 0))
+        spent = float(b.get("today_spend", today))
+        can = bool(b.get("can_proceed", True))
+        check("spend", "the pipeline can start", can,
+              f"${spent:,.2f} of ${limit:,.2f} today",
+              f"raise DUCORN_DAILY_BUDGET in ~/DC/shared/.env, then "
+              f"launchctl kickstart -k gui/$(id -u)/com.ducorn.api")
+        if not can and not _quiet:
+            # Said out loud because it surprises people: the cap gates the
+            # dashboard's start button, not spending. A CLI run ignores it.
+            print("       this blocks the dashboard's start button only — "
+                  "a CLI run does not consult it")
+    except Exception as e:
+        check("spend", "the pipeline can start", False,
+              f"could not ask /budget/check ({type(e).__name__})",
+              "is the API up? launchctl kickstart -k gui/$(id -u)/com.ducorn.api")
 
     if spend_only:
         return

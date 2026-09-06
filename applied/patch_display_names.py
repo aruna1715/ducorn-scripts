@@ -45,7 +45,8 @@ def swap(path, label, text, old, new):
 # ── API ──────────────────────────────────────────────────────────────────────
 a = API.read_text(encoding="utf-8")
 if "display_name_for" in a:
-    sys.exit("Already patched — display_name_for is present.")
+    print("Already patched — display_name_for is present.")
+    sys.exit(0)
 
 a = swap(API, "resolver", a, '''def current_user(request: Request) -> dict:''',
 '''_people_cache = {"data": {}, "ts": 0.0}
@@ -138,7 +139,8 @@ edits.append((API, a))
 # ── Dashboard ────────────────────────────────────────────────────────────────
 d = DASH.read_text(encoding="utf-8")
 if "created_by_name" in d:
-    sys.exit("Already patched — the dashboard reads created_by_name.")
+    print("Already patched — the dashboard reads created_by_name.")
+    sys.exit(0)
 
 d = swap(DASH, "_who", d,
 '''  function _who(email) { return String(email || '').split('@')[0] || '-'; }''',

@@ -74,7 +74,8 @@ SKILL = Path("/Users/ducorn/DC/ducorn/skill_runner.py")
 s = SKILL.read_text(encoding="utf-8")
 
 if "_ATTR_RE" in s:
-    sys.exit("Already patched — the gate reads both quote styles.")
+    print("Already patched — the gate reads both quote styles.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

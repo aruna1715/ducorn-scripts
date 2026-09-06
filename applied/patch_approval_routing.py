@@ -53,7 +53,8 @@ def swap(path, label, text, old, new):
 # ── 1. ducorn_db.request_approval ────────────────────────────────────────────
 d = DB.read_text(encoding="utf-8")
 if "next_phase" in d:
-    sys.exit("Already patched — next_phase is in ducorn_db.py.")
+    print("Already patched — next_phase is in ducorn_db.py.")
+    sys.exit(0)
 
 # Two narrow anchors rather than one block: the INSERT line in this file ends
 # in a trailing space, which a pasted anchor does not reproduce. Match the parts
@@ -89,7 +90,8 @@ edits.append((DB, d, "approval"))
 # ── 2. langgraph_flow._request_approval and the gates ────────────────────────
 f = FLOW.read_text(encoding="utf-8")
 if "next_phase" in f:
-    sys.exit("Already patched — next_phase is in langgraph_flow.py.")
+    print("Already patched — next_phase is in langgraph_flow.py.")
+    sys.exit(0)
 if "node_design" not in f:
     # Order matters and the two patches depend on each other:
     #   this patch's gate_1 calls _load_run_settings(), which patch B adds
@@ -179,7 +181,8 @@ edits.append((FLOW, f, "flow"))
 # ── 3. slack_bot.cmd_approve — one path, not four ────────────────────────────
 sb = SLACK.read_text(encoding="utf-8")
 if "next_phase" in sb:
-    sys.exit("Already patched — next_phase is in slack_bot.py.")
+    print("Already patched — next_phase is in slack_bot.py.")
+    sys.exit(0)
 
 sb = swap(SLACK, "select", sb,
           '''cur.execute("SELECT title, description FROM approval_requests WHERE id=%s", (approval_id,))''',
@@ -288,7 +291,8 @@ edits.append((SLACK, sb, "slack"))
 # ── 4. main.py resume whitelist ──────────────────────────────────────────────
 a = API.read_text(encoding="utf-8")
 if '"design", "gate_2"' in a:
-    sys.exit("Already patched — main.py knows the design phases.")
+    print("Already patched — main.py knows the design phases.")
+    sys.exit(0)
 
 a = swap(API, "resume phases", a,
 '''                if _phase in ["research", "gate_1", "build", "qa", "gate_3", "launch", "gate_4", "deploy"]:

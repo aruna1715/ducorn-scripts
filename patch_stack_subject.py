@@ -51,7 +51,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "_STACK_IS_SUBJECT" in s:
-    sys.exit("Already patched — a document about the stack gets all of it.")
+    print("Already patched — a document about the stack gets all of it.")
+    sys.exit(0)
 if "_stack_context_for" not in s:
     sys.exit("_stack_context_for is not in this flow. NOTHING WRITTEN.")
 

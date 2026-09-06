@@ -91,7 +91,8 @@ def swap(path, label, text, old, new):
 # ═══════════════════════════════════════════════════════════════════════════
 t = TOOL.read_text(encoding="utf-8")
 if "WriteLoopAborted" in t:
-    sys.exit("Already patched — the writer can abort a loop.")
+    print("Already patched — the writer can abort a loop.")
+    sys.exit(0)
 if "_WRITES" not in t:
     sys.exit("Apply patch_writer_done.py first — this builds on its ledger. "
              "NOTHING WRITTEN.")

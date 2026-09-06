@@ -92,7 +92,8 @@ def cut(path, label, text, start_needle, end_needle):
 # ── Dashboard ────────────────────────────────────────────────────────────────
 d = DASH.read_text(encoding="utf-8")
 if "async function approveItem" not in d:
-    sys.exit("Already patched — approveItem is gone from the dashboard.")
+    print("Already patched — approveItem is gone from the dashboard.")
+    sys.exit(0)
 
 d = cut(DASH, "dead approve/reject JS",
         d, "async function approveItem(id)", "async function syncToDrive()")
@@ -111,7 +112,8 @@ edits.append((DASH, d))
 # ── API ──────────────────────────────────────────────────────────────────────
 a = API.read_text(encoding="utf-8")
 if "the gate that raised it" in a:
-    sys.exit("Already patched — pipeline_approve reads next_phase.")
+    print("Already patched — pipeline_approve reads next_phase.")
+    sys.exit(0)
 
 # Anchored on the docstring: `body = await request.json()` appears 12 times in
 # this file, so the start needle has to be something only pipeline_approve has.

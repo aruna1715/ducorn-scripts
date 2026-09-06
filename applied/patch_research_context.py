@@ -70,7 +70,8 @@ FLOW = Path("/Users/ducorn/DC/ducorn/flows/langgraph_flow.py")
 s = FLOW.read_text(encoding="utf-8")
 
 if "_stack_context_for" in s:
-    sys.exit("Already patched — the stack context is scoped.")
+    print("Already patched — the stack context is scoped.")
+    sys.exit(0)
 
 
 def swap(label, text, old, new):

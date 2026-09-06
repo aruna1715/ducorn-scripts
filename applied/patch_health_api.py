@@ -50,7 +50,8 @@ doc_s = DOCTOR.read_text(encoding="utf-8")
 api_s = API.read_text(encoding="utf-8")
 
 if "--json" in doc_s and "_HEALTH" in api_s:
-    sys.exit("Already patched — the health report is available over HTTP.")
+    print("Already patched — the health report is available over HTTP.")
+    sys.exit(0)
 if "def check_regressions" not in doc_s:
     sys.exit("Apply patch_doctor_proof.py first. NOTHING WRITTEN.")
 if "def known_slug" not in api_s:

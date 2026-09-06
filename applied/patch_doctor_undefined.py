@@ -59,7 +59,8 @@ DOCTOR = Path("/Users/ducorn/DC/scripts/doctor.py")
 s = DOCTOR.read_text(encoding="utf-8")
 
 if "def _undefined_names" in s:
-    sys.exit("Already patched — undefined names are caught by pyflakes.")
+    print("Already patched — undefined names are caught by pyflakes.")
+    sys.exit(0)
 if "def check_imports" not in s:
     sys.exit("Apply patch_doctor_proof.py first. NOTHING WRITTEN.")
 

@@ -55,7 +55,8 @@ PROVE = Path("/Users/ducorn/DC/scripts/prove_ui_gate.py")
 
 s = SKILL.read_text(encoding="utf-8")
 if "requirements-ui.txt" in s:
-    sys.exit("Already patched — UI products get a browser in their venv.")
+    print("Already patched — UI products get a browser in their venv.")
+    sys.exit(0)
 
 OLD = '''        else:
             steps.append("(no requirements.txt — skipped install)")

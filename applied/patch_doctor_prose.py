@@ -57,7 +57,8 @@ DOCTOR = Path("/Users/ducorn/DC/scripts/doctor.py")
 s = DOCTOR.read_text(encoding="utf-8")
 
 if "def _code_only" in s:
-    sys.exit("Already patched — absence checks ignore prose.")
+    print("Already patched — absence checks ignore prose.")
+    sys.exit(0)
 if "tries each health path" not in s:
     sys.exit("Apply patch_doctor_proof.py first. NOTHING WRITTEN.")
 

@@ -50,7 +50,8 @@ API = Path("/Users/ducorn/DC/ducorn-products/products/ducorn-activity-api/main.p
 s = API.read_text(encoding="utf-8")
 
 if "start_new_session" in s:
-    sys.exit("Already patched — start_new_session is present.")
+    print("Already patched — start_new_session is present.")
+    sys.exit(0)
 
 lines = s.splitlines(keepends=True)
 sites = [i for i, l in enumerate(lines) if l.strip() == "subprocess.Popen("]

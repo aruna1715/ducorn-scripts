@@ -70,7 +70,8 @@ tool_s = TOOL.read_text(encoding="utf-8")
 skill_s = SKILL.read_text(encoding="utf-8")
 
 if "def declared_services" in tool_s:
-    sys.exit("Already patched — products declare their services.")
+    print("Already patched — products declare their services.")
+    sys.exit(0)
 if "def plan_services" not in tool_s:
     sys.exit("Apply patch_deploy_services.py first. NOTHING WRITTEN.")
 if "def product_urls" not in tool_s:
