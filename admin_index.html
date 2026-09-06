@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DuCorn Admin</title>
+<style>
+:root{
+  --bg:#0F1311; --panel:#171C19; --sunk:#1E2421; --line:#2A322D;
+  --ink:#E9EFEA; --body:#C2CCC5; --dim:#8B958E; --faint:#616B65;
+  --go:#5FBF8E; --go-bg:#14261D;
+  --warn:#E0A85E; --warn-bg:#262016;
+  --stop:#E8796B; --stop-bg:#291816;
+  --accent:#7FB8D4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);
+  font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;}
+.mono,code{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px}
+a{color:var(--accent)}
+.wrap{max-width:1060px;margin:0 auto;padding:26px 20px 90px}
+
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:8px}
+h1{font-size:20px;margin:0;color:var(--ink);font-weight:600;letter-spacing:-.01em}
+.sub{color:var(--dim);font-size:13px}
+.spacer{flex:1}
+.who{color:var(--faint);font-size:12px}
+
+nav{display:flex;gap:2px;margin:18px 0 22px;flex-wrap:wrap}
+nav button{background:none;border:1px solid transparent;color:var(--dim);
+  padding:7px 14px;border-radius:6px;cursor:pointer;font-size:13.5px;
+  font-family:inherit}
+nav button:hover{color:var(--ink);background:var(--sunk)}
+nav button[aria-selected="true"]{background:var(--panel);color:var(--ink);
+  border-color:var(--line)}
+nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+section[hidden]{display:none}
+h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);
+  font-weight:600;margin:26px 0 12px}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:16px 18px;margin-bottom:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;
+  padding:9px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.name{color:var(--ink);font-weight:500}
+.meta{color:var(--faint);font-size:12px;margin-top:2px}
+.val{color:var(--body);font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+
+button.act{background:var(--sunk);border:1px solid var(--line);color:var(--body);
+  padding:5px 11px;border-radius:5px;cursor:pointer;font-size:12.5px;
+  font-family:inherit;white-space:nowrap}
+button.act:hover{border-color:var(--accent);color:var(--ink)}
+button.act:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.act[disabled]{opacity:.4;cursor:default}
+button.danger:hover{border-color:var(--stop);color:var(--stop)}
+
+input[type=text],input[type=password]{background:var(--bg);border:1px solid var(--line);
+  color:var(--ink);border-radius:5px;padding:6px 9px;font-family:ui-monospace,Menlo,monospace;
+  font-size:12.5px;width:100%}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+
+.pill{display:inline-block;font-size:11px;padding:2px 7px;border-radius:4px;
+  font-weight:600;letter-spacing:.02em}
+.p-go{background:var(--go-bg);color:var(--go)}
+.p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-stop{background:var(--stop-bg);color:var(--stop)}
+.p-dim{background:var(--sunk);color:var(--faint)}
+
+.note{background:var(--warn-bg);border-left:2px solid var(--warn);
+  padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;color:var(--ink);
+  font-size:13px}
+.err{background:var(--stop-bg);border-left:2px solid var(--stop);
+  padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;color:var(--ink);
+  font-size:13px}
+.ok{background:var(--go-bg);border-left:2px solid var(--go);
+  padding:10px 14px;border-radius:0 6px 6px 0;margin:12px 0;color:var(--ink);
+  font-size:13px}
+.loading{color:var(--faint);padding:18px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.svc{background:var(--sunk);border:1px solid var(--line);border-radius:7px;
+  padding:11px 13px;display:flex;align-items:center;gap:10px}
+.svc .n{flex:1;color:var(--ink);font-size:13px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.up{background:var(--go)} .dot.down{background:var(--stop)}
+.bar{height:3px;background:var(--sunk);border-radius:2px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent)}
+@media (max-width:560px){ .row{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>DuCorn Admin</h1>
+  <span class="sub">configuration · services · housekeeping</span>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+</header>
+
+<nav role="tablist">
+  <button role="tab" data-tab="env"      aria-selected="true">Configuration</button>
+  <button role="tab" data-tab="services" aria-selected="false">Services</button>
+  <button role="tab" data-tab="caches"   aria-selected="false">Housekeeping</button>
+  <button role="tab" data-tab="health"   aria-selected="false">Health</button>
+</nav>
+
+<div id="flash"></div>
+
+<!-- ── Configuration ───────────────────────────────────────────────── -->
+<section id="tab-env">
+  <div id="env-problems"></div>
+  <h2>shared/.env</h2>
+  <div class="card" id="env-list"><div class="loading">Loading…</div></div>
+  <h2>Restore points</h2>
+  <div class="card" id="env-backups"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- ── Services ────────────────────────────────────────────────────── -->
+<section id="tab-services" hidden>
+  <h2>launchd jobs</h2>
+  <div class="grid" id="svc-list"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- ── Housekeeping ────────────────────────────────────────────────── -->
+<section id="tab-caches" hidden>
+  <div class="note">Every action below names exactly what it deletes and what
+    that costs. Nothing outside this list can be removed from here.</div>
+  <div class="card" id="cache-list"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- ── Health ──────────────────────────────────────────────────────── -->
+<section id="tab-health" hidden>
+  <h2>doctor.py</h2>
+  <div class="card" id="health"><div class="loading">Running doctor…</div></div>
+</section>
+
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (t, c, x) => { const n = document.createElement(t);
+  if (c) n.className = c; if (x !== undefined) n.textContent = x; return n; };
+const kb = n => n < 1024 ? n + " B"
+  : n < 1048576 ? (n/1024).toFixed(0) + " KB"
+  : (n/1048576).toFixed(1) + " MB";
+
+async function api(path, body) {
+  const opt = body ? { method: "POST", headers: {"Content-Type":"application/json"},
+                       body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opt);
+  let data = {};
+  try { data = await r.json(); } catch (e) { data = { error: "no JSON from " + path }; }
+  if (!r.ok) {
+    const e = new Error(data.error || data.detail || ("HTTP " + r.status));
+    e.detail = data;              /* command, exit, stderr — needed to act */
+    throw e;
+  }
+  return data;
+}
+function flash(msg, kind) {
+  const f = $("#flash"); f.innerHTML = "";
+  f.appendChild(el("div", kind || "ok", msg));
+  clearTimeout(flash._t);
+  flash._t = setTimeout(() => { f.innerHTML = ""; }, 9000);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/* ── tabs ─────────────────────────────────────────────────────────── */
+const LOADERS = { env: loadEnv, services: loadServices,
+                  caches: loadCaches, health: loadHealth };
+document.querySelectorAll("nav button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll("nav button").forEach(o =>
+      o.setAttribute("aria-selected", String(o === b)));
+    document.querySelectorAll("section").forEach(s =>
+      s.hidden = s.id !== "tab-" + b.dataset.tab);
+    LOADERS[b.dataset.tab]();
+  });
+});
+
+/* ── configuration ────────────────────────────────────────────────── */
+async function loadEnv() {
+  const box = $("#env-list");
+  try {
+    const d = await api("/api/env");
+    const p = $("#env-problems"); p.innerHTML = "";
+    if (d.problems.length) {
+      const n = el("div", "note");
+      n.appendChild(el("strong", null,
+        d.problems.length + " thing" + (d.problems.length > 1 ? "s" : "") +
+        " worth a look"));
+      d.problems.forEach(pr => {
+        const line = el("div"); line.style.marginTop = "5px";
+        line.appendChild(el("code", null, pr.name));
+        line.appendChild(document.createTextNode("  " + pr.detail));
+        n.appendChild(line);
+      });
+      p.appendChild(n);
+    }
+    box.innerHTML = "";
+    d.entries.forEach(e => box.appendChild(envRow(e)));
+  } catch (err) { box.innerHTML = ""; box.appendChild(el("div","err",err.message)); }
+  loadBackups();
+}
+
+function envRow(e) {
+  const row = el("div", "row");
+  const left = el("div");
+  const nm = el("div", "name", e.name); left.appendChild(nm);
+  const v = el("div", "val", e.empty ? "(empty)" : e.masked);
+  left.appendChild(v);
+  if (e.restarts.length) {
+    left.appendChild(el("div", "meta", "changing this restarts: " + e.restarts.join(", ")));
+  }
+  const right = el("div");
+  right.style.display = "flex"; right.style.gap = "6px";
+
+  if (e.secret) {
+    const rv = el("button", "act", "Reveal");
+    rv.addEventListener("click", async () => {
+      try { const d = await api("/api/env/reveal", { name: e.name });
+            v.textContent = d.value; rv.remove(); }
+      catch (err) { flash(err.message, "err"); }
+    });
+    right.appendChild(rv);
+  }
+  const ed = el("button", "act", "Edit");
+  ed.addEventListener("click", () => editRow(row, e, v));
+  right.appendChild(ed);
+  row.appendChild(left); row.appendChild(right);
+  return row;
+}
+
+function editRow(row, e, valNode) {
+  if (row.querySelector("input")) return;
+  const box = el("div"); box.style.marginTop = "6px";
+  const inp = el("input"); inp.type = "text"; inp.placeholder = "new value";
+  const bar = el("div"); bar.style.cssText = "display:flex;gap:6px;margin-top:6px";
+  const save = el("button", "act", "Save");
+  const cancel = el("button", "act", "Cancel");
+  bar.appendChild(save); bar.appendChild(cancel);
+  box.appendChild(inp); box.appendChild(bar);
+  row.firstChild.appendChild(box);
+  inp.focus();
+  cancel.addEventListener("click", () => box.remove());
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try {
+      const d = await api("/api/env", { changes: { [e.name]: inp.value } });
+      box.remove();
+      let m = e.name + " saved. Backed up to " + d.backup.split("/").pop() + ".";
+      if (d.restart.length) m += " Restart needed: " + d.restart
+        .map(s => s.replace("com.ducorn.", "")).join(", ") + ".";
+      flash(m, "ok");
+      loadEnv();
+    } catch (err) { save.disabled = false; flash(err.message, "err"); }
+  });
+}
+
+async function loadBackups() {
+  const box = $("#env-backups");
+  try {
+    const d = await api("/api/env/backups");
+    box.innerHTML = "";
+    if (!d.backups.length) { box.appendChild(el("div","meta","No backups yet.")); return; }
+    d.backups.slice(0, 12).forEach(b => {
+      const row = el("div", "row");
+      const left = el("div");
+      left.appendChild(el("div", "val", b.name));
+      left.appendChild(el("div", "meta", kb(b.bytes)));
+      const btn = el("button", "act danger", "Restore");
+      btn.addEventListener("click", async () => {
+        if (!confirm("Replace shared/.env with " + b.name + "?\n\nThe current file is backed up first.")) return;
+        try { await api("/api/env/restore", { name: b.name });
+              flash("Restored from " + b.name, "ok"); loadEnv(); }
+        catch (err) { flash(err.message, "err"); }
+      });
+      row.appendChild(left); row.appendChild(btn);
+      box.appendChild(row);
+    });
+  } catch (err) { box.innerHTML = ""; box.appendChild(el("div","err",err.message)); }
+}
+
+/* ── services ─────────────────────────────────────────────────────── */
+async function loadServices() {
+  const box = $("#svc-list");
+  try {
+    const d = await api("/api/services");
+    box.innerHTML = "";
+    d.services.forEach(s => {
+      const c = el("div", "svc");
+      c.appendChild(el("span", "dot " + (s.running ? "up" : "down")));
+      const n = el("div", "n", s.short);
+      if (s.pid) n.appendChild(el("div", "meta", "pid " + s.pid));
+      else n.appendChild(el("div", "meta", s.loaded ? "loaded, not running" : "not loaded"));
+      c.appendChild(n);
+      const b = el("button", "act", "Restart");
+      b.addEventListener("click", async () => {
+        b.disabled = true; b.textContent = "…";
+        try { const r = await api("/api/services/restart", { label: s.label });
+              flash(s.short + " restarted (exit " + r.exit + ")", r.exit === 0 ? "ok" : "err");
+              setTimeout(loadServices, 1200); }
+        catch (err) { flash(err.message, "err"); b.disabled = false; b.textContent = "Restart"; }
+      });
+      c.appendChild(b);
+      box.appendChild(c);
+    });
+  } catch (err) { box.innerHTML = ""; box.appendChild(el("div","err",err.message)); }
+}
+
+/* ── housekeeping ─────────────────────────────────────────────────── */
+const RISK = { none: ["p-dim","safe"], low: ["p-go","low risk"],
+               medium: ["p-warn","think first"], high: ["p-stop","destructive"] };
+async function loadCaches() {
+  const box = $("#cache-list");
+  try {
+    const d = await api("/api/caches");
+    box.innerHTML = "";
+    d.caches.forEach(c => {
+      const row = el("div", "row");
+      const left = el("div");
+      const head = el("div", "name", c.label);
+      const [cls, word] = RISK[c.risk] || RISK.none;
+      const pill = el("span", "pill " + cls, word);
+      pill.style.marginLeft = "8px";
+      head.appendChild(pill);
+      left.appendChild(head);
+      left.appendChild(el("div", "meta",
+        c.count + " item" + (c.count === 1 ? "" : "s") + " · " + kb(c.bytes)));
+      left.appendChild(el("div", "meta", c.cost));
+      const b = el("button", "act" + (c.risk === "high" ? " danger" : ""), "Clear");
+      b.disabled = c.count === 0;
+      b.addEventListener("click", async () => {
+        const msg = "Clear " + c.label + "?\n\n" + c.cost +
+                    "\n\n" + c.count + " items, " + kb(c.bytes) + ".";
+        if (!confirm(msg)) return;
+        b.disabled = true; b.textContent = "…";
+        try {
+          const r = await api("/api/caches/clear",
+            { key: c.key, confirm: c.risk === "high" ? c.key : "" });
+          flash("Cleared " + c.label + " — " + r.removed + " removed, " +
+                kb(r.freed) + " freed", "ok");
+          loadCaches();
+        } catch (err) { flash(err.message, "err"); b.disabled = false; b.textContent = "Clear"; }
+      });
+      row.appendChild(left); row.appendChild(b);
+      box.appendChild(row);
+    });
+  } catch (err) { box.innerHTML = ""; box.appendChild(el("div","err",err.message)); }
+}
+
+/* ── health ───────────────────────────────────────────────────────── */
+async function loadHealth() {
+  const box = $("#health");
+  box.innerHTML = ""; box.appendChild(el("div","loading","Running doctor.py — this takes a moment…"));
+  let d;
+  try { d = await api("/api/health"); }
+  catch (err) {
+    /* Show the diagnosis, not just "failed". The API returns the command it
+       ran, the exit code and stderr precisely so this can be acted on. */
+    box.innerHTML = "";
+    const e = el("div","err"); e.appendChild(el("strong",null,err.message));
+    box.appendChild(e);
+    const det = err.detail || {};
+    ["command","exit","stderr","stdout"].forEach(k => {
+      if (det[k] === undefined || det[k] === "") return;
+      box.appendChild(el("div","meta", k));
+      const pre = el("pre","mono", String(det[k]));
+      pre.style.cssText = "overflow-x:auto;margin:2px 0 10px;color:var(--body);white-space:pre-wrap";
+      box.appendChild(pre);
+    });
+    return;
+  }
+
+  const checks = d.checks || [];
+  box.innerHTML = "";
+  if (!checks.length) {
+    box.appendChild(el("div","note","doctor returned no checks."));
+    return;
+  }
+  const bad = checks.filter(c => !c.ok);
+  const head = el("div","row"); const hl = el("div");
+  hl.appendChild(el("div","name",
+    (checks.length - bad.length) + " of " + checks.length + " checks passing"));
+  if (d.generated_at) hl.appendChild(el("div","meta", d.generated_at));
+  const bar = el("div","bar"); const fill = el("i");
+  fill.style.width = Math.round((checks.length - bad.length)/checks.length*100) + "%";
+  if (bad.length) fill.style.background = "var(--warn)";
+  bar.appendChild(fill); hl.appendChild(bar);
+  head.appendChild(hl);
+  const again = el("button","act","Re-run");
+  again.addEventListener("click", loadHealth);
+  head.appendChild(again);
+  box.appendChild(head);
+
+  /* Grouped by doctor's own section, failures first inside each. */
+  const sections = [];
+  checks.forEach(c => { const s = c.section || "other";
+    if (!sections.includes(s)) sections.push(s); });
+  sections.forEach(sec => {
+    const rows = checks.filter(c => (c.section || "other") === sec)
+                       .sort((a,b) => (a.ok === b.ok) ? 0 : (a.ok ? 1 : -1));
+    const h = el("div","row"); const hh = el("div");
+    const nfail = rows.filter(r => !r.ok).length;
+    const t = el("div","name", sec);
+    const pill = el("span","pill " + (nfail ? "p-stop" : "p-go"),
+                    nfail ? nfail + " failing" : rows.length + " ok");
+    pill.style.marginLeft = "8px"; t.appendChild(pill);
+    hh.appendChild(t); h.appendChild(hh); box.appendChild(h);
+    rows.forEach(c => {
+      if (c.ok) return;                      /* passing checks stay collapsed */
+      const row = el("div","row"); const left = el("div");
+      left.style.paddingLeft = "14px";
+      left.appendChild(el("div","name", c.name));
+      if (c.detail) left.appendChild(el("div","meta", c.detail));
+      if (c.fix) left.appendChild(el("div","val", "→ " + c.fix));
+      row.appendChild(left); box.appendChild(row);
+    });
+  });
+  if (!bad.length) box.appendChild(el("div","ok","Everything doctor checks is passing."));
+}
+
+/* ── boot ─────────────────────────────────────────────────────────── */
+api("/api/whoami").then(d => { $("#who").textContent = d.user + " · " + d.root; })
+  .catch(() => {});
+loadEnv();
+</script>
+</body>
+</html>
