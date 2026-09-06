@@ -237,23 +237,193 @@ def products():
 
 
 # ── dependencies ─────────────────────────────────────────────────────────────
-def dependencies():
+# Three sources. The old version read one glob —
+# products/*/requirements.txt — plus pyproject.toml, which between them do not
+# name playwright (it is in _shared/requirements-ui.txt) or langgraph (it is in
+# no manifest at all). The stack runs on LangGraph and nothing in the repo says
+# so; a document written from manifests alone would omit the framework the
+# whole system is built on.
+
+_SKIP_DIRS = {".venv", "node_modules", "__pycache__", ".git", "site-packages"}
+
+
+def _walk(pattern):
+    """
+    Every readable match under DC, outside vendored and build directories.
+
+    is_file() rather than bare rglob: the tree contains at least one dangling
+    symlink (ducorn-products/scripts/langgraph_flow.py points at nothing), and
+    rglob happily yields it. Without this the first read_text raised
+    FileNotFoundError and took the entire collector down — one broken link and
+    the stack has no dependency table at all.
+    """
+    for p in sorted(DC.rglob(pattern)):
+        if _SKIP_DIRS & set(p.parts):
+            continue
+        try:
+            if p.is_file():
+                yield p
+        except OSError:
+            continue
+
+
+def declared():
+    """package -> {which files declare it}. Answers 'who needs this'."""
     seen = {}
-    for req in sorted(DC.glob("ducorn-products/products/*/requirements.txt")):
-        for ln in req.read_text(errors="replace").splitlines():
+    for req in _walk("requirements*.txt"):
+        where = str(req.relative_to(DC))
+        try:
+            lines = req.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for ln in lines:
             ln = ln.split("#")[0].strip()
-            if not ln:
+            if not ln or ln.startswith("-"):
                 continue
-            name = re.split(r"[=<>\[]", ln, maxsplit=1)[0].strip()
+            name = re.split(r"[=<>\[!~]", ln, maxsplit=1)[0].strip()
             if name:
-                seen.setdefault(name, set()).add(ln)
+                seen.setdefault(name.lower(), {"pin": set(), "where": set()})
+                seen[name.lower()]["pin"].add(ln)
+                seen[name.lower()]["where"].add(where)
+
+    for pj in _walk("package.json"):
+        where = str(pj.relative_to(DC))
+        try:
+            data = json.loads(pj.read_text(errors="replace"))
+        except (ValueError, OSError):
+            continue
+        for key in ("dependencies", "devDependencies"):
+            for name, pin in (data.get(key) or {}).items():
+                seen.setdefault(name.lower(), {"pin": set(), "where": set()})
+                # "@cursor/sdk latest", not "@cursor/sdklatest" — an npm
+                # range like "^2.8.5" carries its own operator, so jamming the
+                # name against it reads as a single token.
+                seen[name.lower()]["pin"].add(f"{name} {pin}")
+                seen[name.lower()]["where"].add(where)
+
     pyproject = DC / "ducorn/pyproject.toml"
     if pyproject.is_file():
-        for m in re.finditer(r'"([A-Za-z0-9_.\-]+)[><=~]{1,2}([^"]+)"',
+        # The operator is part of the pin. Capturing the name and the
+        # version but not the ">=" between them rendered every dependency as
+        # an exact pin, whether or not it was one.
+        for m in re.finditer(r'"([A-Za-z0-9_.\-]+)([><=~]{1,2})([^"]+)"',
                              pyproject.read_text(errors="replace")):
-            seen.setdefault(m.group(1), set()).add(m.group(1) + m.group(2))
-    return [[n, ", ".join(sorted(v))[:48]] for n, v in sorted(seen.items())]
+            k = m.group(1).lower()
+            seen.setdefault(k, {"pin": set(), "where": set()})
+            seen[k]["pin"].add(m.group(1) + m.group(2) + m.group(3))
+            seen[k]["where"].add("ducorn/pyproject.toml")
+    return seen
 
+
+def installed_packages():
+    """
+    What is actually installed in the pipeline venv.
+
+    Read from *.dist-info directory names — no pip, no subprocess, no choosing
+    an interpreter. The names on disk are the source of truth and this script
+    must run under any python.
+    """
+    out = {}
+    for site in DC.glob("ducorn/.venv/lib/python*/site-packages"):
+        for d in sorted(site.glob("*.dist-info")):
+            stem = d.name[:-len(".dist-info")]
+            if "-" not in stem:
+                continue
+            name, _, version = stem.rpartition("-")
+            out[name.replace("_", "-").lower()] = version
+    return out
+
+
+def import_to_dist():
+    """
+    What you type in an import -> what pip calls it.
+
+    psycopg2 is imported by half this codebase and installed as
+    psycopg2-binary, so matching import names against distribution names drops
+    it — the same shape as langgraph being invisible, one layer down.
+    dist-info/top_level.txt is the mapping, written by the installer.
+    """
+    out = {}
+    for site in DC.glob("ducorn/.venv/lib/python*/site-packages"):
+        for d in sorted(site.glob("*.dist-info")):
+            stem = d.name[:-len(".dist-info")]
+            if "-" not in stem:
+                continue
+            dist = stem.rpartition("-")[0].replace("_", "-").lower()
+            top = d / "top_level.txt"
+            try:
+                mods = top.read_text(errors="replace").split()
+            except OSError:
+                mods = [dist.replace("-", "_")]
+            for m in mods:
+                out[m.strip().lower()] = dist
+    return out
+
+
+def imported_by_ducorn():
+    """Top-level modules DuCorn's OWN source imports, by name."""
+    names = set()
+    for py in _walk("*.py"):
+        try:
+            tree = ast.parse(py.read_text(errors="replace"))
+        except (SyntaxError, ValueError, OSError):
+            continue
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Import):
+                names |= {a.name.split(".")[0].lower() for a in n.names}
+            elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
+                names.add(n.module.split(".")[0].lower())
+    return names
+
+
+def dependencies():
+    """
+    Load-bearing packages: declared by a manifest, or imported by our code.
+
+    The venv holds 175 packages and most are transitive. Naming all of them
+    buries the signal; naming none of them lost LangGraph. "Something declares
+    it, or we import it" is computed from the tree, so it cannot go stale.
+    """
+    dec = declared()
+    inst = installed_packages()
+    imp2dist = import_to_dist()
+    # Resolve each import name to its distribution before intersecting, or a
+    # package installed under a different name than you import it by is simply
+    # invisible — psycopg2/psycopg2-binary, sklearn/scikit-learn, yaml/PyYAML.
+    ours = {imp2dist.get(n, n) for n in imported_by_ducorn()}
+
+    rows = []
+    for name in sorted(set(dec) | (set(inst) & ours)):
+        version = inst.get(name, "")
+        d = dec.get(name)
+        pin = ", ".join(sorted(d["pin"]))[:38] if d else ""
+        where = ", ".join(sorted(d["where"]))[:44] if d else "installed only"
+        rows.append([name, version or "—", pin or "—", where])
+    return rows
+
+
+def dependency_note():
+    """One line saying how many were left out, so the omission is visible."""
+    inst = installed_packages()
+    shown = {r[0] for r in dependencies()}
+    hidden = len(set(inst) - shown)
+    return (f"{len(shown)} load-bearing packages: declared by a manifest, or "
+            f"imported by DuCorn's own source. A further {hidden} are "
+            f"installed in `ducorn/.venv` as transitive dependencies and are "
+            f"not listed.")
+
+
+def vendored():
+    """Third-party assets committed into the tree. No manifest lists these."""
+    rows = []
+    for pattern in ("*.min.js", "*.min.css"):
+        for p in _walk(pattern):
+            try:
+                kb = p.stat().st_size // 1024
+            except OSError:
+                continue
+            rows.append([p.name, f"{kb:,} KB", str(p.parent.relative_to(DC))])
+    return sorted(rows)
 
 # ═════════════════════════════════════════════════════════════════════════════
 line(f"# DuCorn — {'architecture' if PUB else 'stack facts'}")
@@ -314,9 +484,17 @@ h("Products")
 table(["product", "shape", "declares service.json", "deployed"], products())
 
 h("Dependencies")
-line("Pinned across product requirements and the pipeline's own project file.")
+line(dependency_note())
 line()
-table(["package", "pin"], dependencies())
+table(["package", "installed", "pin", "declared in"], dependencies())
+
+_vendored = vendored()
+if _vendored:
+    h("Vendored assets")
+    line("Third-party files committed into the tree. No manifest lists these, "
+         "so nothing else in this document would know they exist.")
+    line()
+    table(["file", "size", "location"], _vendored)
 
 if not PUB:
     # Headed "Credentials" on purpose: _stack_context() drops any section whose

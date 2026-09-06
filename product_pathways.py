@@ -75,6 +75,7 @@ class Pathway:
 
     # ── what happens after the build ─────────────────────────────────────
     deploys: bool = True           # a long-running service, or a file?
+    launches: bool = True          # does NOVA write launch content?
     publish_to: str = "products"   # "docs" or "products"
 
     # ── how much iteration is worth paying for ───────────────────────────
@@ -137,6 +138,8 @@ PATHWAYS = {
         deliverable_ext=frozenset({".md", ".html", ".pdf", ".txt"}),
         ships_interface=False,
         deploys=False,
+        launches=False,            # NOVA is the Sales Director. An internal
+                                   # engineering reference is not launched.
         publish_to="docs",
         max_review_iterations=1,
         prompt_noun="document",
