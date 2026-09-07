@@ -226,12 +226,24 @@ def check_keys_and_spend(spend_only=False):
     try:
         b = get_json(f"{API}/budget/check")
         limit = float(b.get("daily_limit", 0))
-        spent = float(b.get("today_spend", today))
-        can = bool(b.get("can_proceed", True))
+        spent = b.get("today_spend")
+        can = bool(b.get("can_proceed", False))
         check("spend", "the pipeline can start", can,
-              f"${spent:,.2f} of ${limit:,.2f} today",
+              (f"${float(spent):,.2f} of ${limit:,.2f} today"
+               if spent is not None else b.get("message", "spend unknown")),
               f"raise DUCORN_DAILY_BUDGET in ~/DC/shared/.env, then "
               f"launchctl kickstart -k gui/$(id -u)/com.ducorn.api")
+
+        # Two computations of one fact. doctor sums LiteLLM_SpendLogs above;
+        # /budget/check now sums the same table through ducorn_spend.py. They
+        # must agree, so say so when they do not, rather than letting the gate
+        # and the report drift the way they did when the endpoint scanned
+        # LiteLLM's HTTP logs and stopped at the first row.
+        check("spend", "the gate and this report agree",
+              spent is not None and abs(float(spent) - today) < 0.01,
+              (f"doctor ${today:,.2f} · /budget/check ${float(spent):,.2f}"
+               if spent is not None else "/budget/check cannot read the spend"),
+              "both should read LiteLLM_SpendLogs via scripts/ducorn_spend.py")
         if not can and not _quiet:
             # Said out loud because it surprises people: the cap gates the
             # dashboard's start button, not spending. A CLI run ignores it.
