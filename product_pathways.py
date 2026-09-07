@@ -64,6 +64,15 @@ class Pathway:
     skills: tuple                  # e.g. ("01", "04", "07")
     design_skills: tuple = ()      # added when the founder asked for a UI
 
+    # ── the post-build loop ──────────────────────────────────────────────
+    # node_qa and node_qa_fix are separate graph nodes: the skills above are
+    # chosen in node_build and never reach them. They hardcoded "06" and
+    # "05", so a document — already reviewed by 07 during the build — was put
+    # through QA + Run Test anyway, four attempts, about $0.40, every run.
+    # "" means this kind of product has no such step.
+    qa_skill: str = "06"           # what node_qa runs
+    fix_skill: str = "05"          # what node_qa_fix runs after a failure
+
     # ── what the reviewers may demand ────────────────────────────────────
     runs_tests: bool = True        # is a pytest suite meaningful here?
     checks_ui: bool = True         # may ui_test_coverage fail this product?
@@ -127,6 +136,24 @@ its exit codes and messages are honest.
 """
 
 
+# What each skill is called, for the dashboard and the logs. Lived inline in
+# node_build; both QA nodes need it too, and a second copy is how two names
+# for one skill start disagreeing.
+SKILL_NAMES = {
+    "01": "Skill 01 — PRD Analysis",
+    "02": "Skill 02 — Design Consultation",
+    "03": "Skill 03 — Design Review",
+    "04": "Skill 04 — Build",
+    "05": "Skill 05 — Code Review",
+    "06": "Skill 06 — QA + Run Test",
+    "07": "Skill 07 — Content Review",
+}
+
+
+def skill_name(num: str) -> str:
+    return SKILL_NAMES.get(num, f"Skill {num}")
+
+
 PATHWAYS = {
     # ── prose. the reason this module exists. ────────────────────────────
     "document": Pathway(
@@ -141,6 +168,11 @@ PATHWAYS = {
         launches=False,            # NOVA is the Sales Director. An internal
                                    # engineering reference is not launched.
         publish_to="docs",
+        # 07 reviewed the prose during the build and can fail the run. There
+        # is nothing for QA + Run Test to execute and nothing for a code
+        # review to read.
+        qa_skill="",
+        fix_skill="",
         max_review_iterations=1,
         prompt_noun="document",
         prompt_rules=_DOC_RULES,

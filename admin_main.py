@@ -262,17 +262,33 @@ def log_sources() -> list:
                         "label": label, "stream": stream, "path": str(p),
                         "claimed": True, "kind": kind, "product": product})
 
-    # Files nothing declares. Under logs/ they are the scripts — slack_bot.log
-    # and friends — so they belong with the stack. Under a product directory
-    # they belong to that product.
+    # Files nothing declares.
+    #
+    # flow_<topic>.log is one pipeline run. It is neither a stack service nor
+    # a running product — it is the record of a product being BUILT, and most
+    # of them name a topic with no product directory at all: superseded
+    # versions, renamed runs, tests. Filing them with the services was wrong;
+    # filing them with the products would bury seven live products behind
+    # twenty-seven build logs. They are their own thing.
+    #
+    # Everything else under logs/ is a script — slack_bot.log, digest.log —
+    # and belongs with the stack.
     if LOGS.is_dir():
         for p in sorted(LOGS.glob("*.log")):
             rp = _under_dc(str(p))
             if rp is None or rp in claimed:
                 continue
-            out.append({"id": f"unclaimed:{p.name}", "service": p.stem,
-                        "label": None, "stream": "log", "path": str(rp),
-                        "claimed": False, "kind": "stack", "product": None})
+            if p.name.startswith("flow_"):
+                topic = p.stem[len("flow_"):]
+                out.append({"id": f"flow:{topic}", "service": topic,
+                            "label": None, "stream": "run", "path": str(rp),
+                            "claimed": False, "kind": "pipeline",
+                            "product": topic if topic in dirs else None})
+            else:
+                out.append({"id": f"unclaimed:{p.name}", "service": p.stem,
+                            "label": None, "stream": "log", "path": str(rp),
+                            "claimed": False, "kind": "stack",
+                            "product": None})
 
     if PRODUCTS.is_dir():
         for d in sorted(PRODUCTS.iterdir()):
@@ -552,10 +568,10 @@ def api_restart(body: ServiceBody, who: str = Depends(require_login)):
 
 @app.get("/api/logs")
 def api_logs(kind: str = "", who: str = Depends(require_login)):
-    every = log_sources()                       # one scan, not three
-    counts = {"stack": sum(1 for s in every if s["kind"] == "stack"),
-              "product": sum(1 for s in every if s["kind"] == "product")}
-    if kind in ("stack", "product"):
+    every = log_sources()                       # one scan, not four
+    kinds = ("stack", "product", "pipeline")
+    counts = {k: sum(1 for s in every if s["kind"] == k) for k in kinds}
+    if kind in kinds:
         every = [s for s in every if s["kind"] == kind]
     return {"sources": every, "counts": counts}
 

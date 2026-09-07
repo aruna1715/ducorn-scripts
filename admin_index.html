@@ -124,6 +124,7 @@ pre.raw .empty{color:var(--faint)}
   <button role="tab" data-tab="services" aria-selected="false">Services</button>
   <button role="tab" data-tab="logs"     aria-selected="false">Service Logs</button>
   <button role="tab" data-tab="plogs"    aria-selected="false">Product Logs</button>
+  <button role="tab" data-tab="runs"     aria-selected="false">Pipeline Runs</button>
   <button role="tab" data-tab="caches"   aria-selected="false">Housekeeping</button>
   <button role="tab" data-tab="health"   aria-selected="false">Health</button>
 </nav>
@@ -175,6 +176,22 @@ pre.raw .empty{color:var(--faint)}
     </select>
   </div>
   <div class="card" id="list-product"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- ── Pipeline runs ───────────────────────────────────────────────── -->
+<section id="tab-runs" hidden>
+  <div class="listhead">
+    <h2>flow_&lt;topic&gt;.log — one per pipeline run</h2>
+    <span class="spacer"></span>
+    <label class="chk" for="sort-pipeline">sort</label>
+    <select id="sort-pipeline" class="sel" data-kind="pipeline">
+      <option value="recent" selected>most recently written</option>
+      <option value="name">name</option>
+      <option value="size">size, largest first</option>
+      <option value="service">topic</option>
+    </select>
+  </div>
+  <div class="card" id="list-pipeline"><div class="loading">Loading…</div></div>
 </section>
 
 <!-- One viewer, moved into whichever tab opened it. Two copies would be two
@@ -248,7 +265,9 @@ function flash(msg, kind) {
 
 /* ── tabs ─────────────────────────────────────────────────────────── */
 const LOADERS = { env: loadEnv, services: loadServices, logs: loadLogs,
-                  plogs: loadPLogs, caches: loadCaches, health: loadHealth };
+                  plogs: loadPLogs, runs: loadRuns,
+                  caches: loadCaches, health: loadHealth };
+const LOG_TABS = ["logs", "plogs", "runs"];
 document.querySelectorAll("nav button").forEach(b => {
   b.addEventListener("click", () => {
     document.querySelectorAll("nav button").forEach(o =>
@@ -258,7 +277,7 @@ document.querySelectorAll("nav button").forEach(b => {
     /* leaving Logs must stop the poll — a "follow" left running in a hidden
        tab is a request every 3s forever, and the reason it is easy to miss
        is that nothing on screen shows it happening. */
-    if (b.dataset.tab !== "logs" && b.dataset.tab !== "plogs") stopFollow();
+    if (!LOG_TABS.includes(b.dataset.tab)) stopFollow();
     LOADERS[b.dataset.tab]();
   });
 });
@@ -401,7 +420,10 @@ function stopFollow() {
   const f = $("#log-follow"); if (f) f.checked = false;
 }
 
-const LOG_SOURCES = { stack: [], product: [] };
+const LOG_SOURCES = { stack: [], product: [], pipeline: [] };
+/* kind -> the tab that shows it. One map, so the viewer and the loaders
+   cannot disagree about where a log lives. */
+const KIND_TAB = { stack: "logs", product: "plogs", pipeline: "runs" };
 
 /* A log that has never been written has no mtime and no size. Sorting those
    as zero buries them under everything; they go last in every order, and
@@ -427,6 +449,7 @@ function sortSources(list, kind) {
    Every other loader here is a declaration — these two now match. */
 function loadLogs()  { return loadKind("stack"); }
 function loadPLogs() { return loadKind("product"); }
+function loadRuns()  { return loadKind("pipeline"); }
 
 async function loadKind(kind) {
   const box = $("#list-" + kind);
@@ -444,9 +467,10 @@ function renderLogList(kind) {
   box.innerHTML = "";
   const all = LOG_SOURCES[kind];
   if (!all.length) {
-    box.appendChild(el("div", "loading", kind === "product"
-      ? "no product has written a log yet"
-      : "no log files found"));
+    box.appendChild(el("div", "loading", {
+      product:  "no product has written a log yet",
+      pipeline: "no pipeline has run yet",
+    }[kind] || "no log files found"));
     return;
   }
   const claimed = sortSources(all.filter(s => s.claimed), kind);
@@ -477,6 +501,11 @@ function logRow(s) {
     ? where + " · " + kb(s.size) + (s.mtime
         ? " · " + new Date(s.mtime * 1000).toLocaleString() : "")
     : where + " · not written yet"));
+  /* A run whose product directory is gone — superseded, renamed, or a test.
+     Worth saying, because that log is often the one you came to read. */
+  if (s.kind === "pipeline" && !s.product) {
+    left.appendChild(el("span", "pill p-dim", "no product directory"));
+  }
   const b = el("button", "act", "View");
   if (!s.exists) b.disabled = true;
   b.addEventListener("click", () => openLog(s));
@@ -489,7 +518,7 @@ function openLog(s) {
   const v = $("#log-viewer");
   /* Move the one viewer under the tab that opened it, so it never appears
      in the other tab showing a log that tab does not list. */
-  $("#tab-" + (s.kind === "product" ? "plogs" : "logs")).appendChild(v);
+  $("#tab-" + (KIND_TAB[s.kind] || "logs")).appendChild(v);
   v.hidden = false;
   $("#log-title").textContent =
     s.service + (s.stream === "log" ? "" : " · " + s.stream);
