@@ -35,7 +35,9 @@ would undo the point of this line.
 HTTP Basic against UI_USERNAME / UI_PASSWORD applies either way.
 """
 import argparse
+import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -123,6 +125,37 @@ print(f"  {'user':26} {env['UI_USERNAME']}")
 if PLIST.is_file():
     print(f"\n  note: {PLIST.name} already exists and will be replaced")
 
+# ── does the page even load? ─────────────────────────────────────────────────
+# A page whose top-level code throws is dead in every tab, and neither
+# `node --check` nor this installer's own byte comparison can see it — the
+# file is valid JavaScript that happens to explode when run. Installing one
+# is strictly worse than not installing: the old working page is replaced by
+# a blank screen. So this gates the install rather than warning after it.
+checker = HERE / "prove_admin_page.js"
+node = shutil.which("node")
+
+if not checker.is_file():
+    print(f"\n⚠️  {checker.name} is not beside this script — the page will be "
+          f"installed WITHOUT being loaded first.")
+elif not node:
+    print("\n⚠️  node is not on PATH — the page will be installed WITHOUT "
+          "being loaded first.\n     brew install node, then re-run, to get "
+          "this check back.")
+else:
+    r = subprocess.run([node, str(checker), str(src_html)],
+                       capture_output=True, text=True, timeout=60)
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        sys.exit(f"""
+NOTHING DONE — {src_html.name} does not load.
+
+  {out}
+
+Installing this would replace a working page with a blank one. Fix the page
+and re-run; nothing has been written.
+""")
+    print(f"\n  page loads   {out}")
+
 if not args.apply:
     print("\nRe-run with --apply to install.")
     raise SystemExit(0)
@@ -133,7 +166,23 @@ PRODUCT.mkdir(parents=True, exist_ok=True)
 shutil.copy2(src_api, PRODUCT / "main.py")
 shutil.copy2(src_html, PRODUCT / "index.html")
 (PRODUCT / "requirements.txt").write_text(REQS, encoding="utf-8")
-print("\nwrote main.py, index.html, requirements.txt")
+
+# What actually landed. "wrote index.html" is not evidence that the file the
+# service will serve is the file you just edited — a stale copy, a half write
+# or a copy into the wrong tree all print the same sentence.
+def sha(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()[:12]
+
+
+for src, dst in ((src_api, PRODUCT / "main.py"),
+                 (src_html, PRODUCT / "index.html")):
+    if sha(src) != sha(dst):
+        sys.exit(f"the copy of {dst.name} does not match {src} — stop.")
+
+html = src_html.read_text(encoding="utf-8", errors="replace")
+tabs = re.findall(r'data-tab="([a-z]+)"', html)
+print(f"\nwrote main.py, index.html, requirements.txt")
+print(f"  page  {sha(src_html)}  ·  tabs: {', '.join(tabs) or 'NONE FOUND'}")
 
 # ── venv ─────────────────────────────────────────────────────────────────────
 venv_py = PRODUCT / ".venv" / "bin" / "python"
@@ -293,6 +342,49 @@ pid = ""
 for line in check.stdout.splitlines():
     if '"PID"' in line:
         pid = line.split("=")[-1].strip().rstrip(";")
+
+# ── does the RUNNING service serve the page we just installed? ───────────────
+# Loaded and listening is not the same as serving the right file. The Logs tab
+# was added, the installer said "installed and running", and the page had no
+# Logs tab — because the new index.html had never reached scripts/ at all.
+# Nothing in the install checked, so nothing said so.
+import base64
+import urllib.error
+import urllib.request
+
+served = None
+for attempt in range(6):
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{PORT}/")
+        tok = base64.b64encode(
+            f"{env['UI_USERNAME']}:{env['UI_PASSWORD']}".encode()).decode()
+        req.add_header("Authorization", "Basic " + tok)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            served = resp.read().decode("utf-8", "replace")
+        break
+    except (urllib.error.URLError, OSError):
+        time.sleep(1)
+
+if served is None:
+    print(f"\n⚠️  the service is loaded but did not answer on :{PORT}. "
+          f"Check {DC}/logs/admin.out.log")
+else:
+    served_tabs = re.findall(r'data-tab="([a-z]+)"', served)
+    if served_tabs != tabs:
+        sys.exit(f"""
+INSTALLED, BUT SERVING A DIFFERENT PAGE.
+
+  on disk   {', '.join(tabs)}
+  served    {', '.join(served_tabs) or '(none)'}
+
+The running service is not showing the file you just installed. Restart it
+and look at the log:
+  launchctl kickstart -k gui/{uid}/{LABEL}
+  tail -20 {DC}/logs/admin.out.log
+""")
+    print(f"\nserving: {', '.join(served_tabs)}  "
+          f"({len(served):,} bytes, no-store)")
+
 print("\ninstalled and running" + (f" (pid {pid})" if pid else "") + ".\n")
 print(f"  open   http://localhost:{PORT}")
 print(f"  log    tail -f {DC}/logs/admin.out.log")

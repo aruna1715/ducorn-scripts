@@ -87,6 +87,25 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
 .dot.up{background:var(--go)} .dot.down{background:var(--stop)}
 .bar{height:3px;background:var(--sunk);border-radius:2px;overflow:hidden;margin-top:6px}
 .bar i{display:block;height:100%;background:var(--accent)}
+/* ── logs ─────────────────────────────────────────────────────────── */
+.listhead{display:flex;align-items:center;gap:8px}
+.listhead h2{margin:26px 0 12px}
+.listhead .chk,.listhead .sel{margin-top:14px}
+.logbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  padding-bottom:11px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.logbar input[type=text]{flex:1;min-width:190px}
+.chk{display:flex;align-items:center;gap:5px;color:var(--dim);font-size:12.5px;
+  white-space:nowrap;cursor:pointer}
+.chk input{accent-color:var(--accent);margin:0}
+.sel{background:var(--bg);border:1px solid var(--line);color:var(--body);
+  border-radius:5px;padding:5px 8px;font-family:inherit;font-size:12.5px}
+pre.raw{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+  margin:0;padding:12px 14px;max-height:62vh;overflow:auto;
+  font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;
+  line-height:1.5;color:var(--body);white-space:pre;tab-size:4}
+pre.raw mark{background:var(--warn-bg);color:var(--warn);border-radius:2px;
+  padding:0 1px}
+pre.raw .empty{color:var(--faint)}
 @media (max-width:560px){ .row{grid-template-columns:1fr} }
 </style>
 </head>
@@ -95,7 +114,7 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
 
 <header>
   <h1>DuCorn Admin</h1>
-  <span class="sub">configuration · services · housekeeping</span>
+  <span class="sub">configuration · services · logs · housekeeping</span>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
 </header>
@@ -103,6 +122,8 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
 <nav role="tablist">
   <button role="tab" data-tab="env"      aria-selected="true">Configuration</button>
   <button role="tab" data-tab="services" aria-selected="false">Services</button>
+  <button role="tab" data-tab="logs"     aria-selected="false">Service Logs</button>
+  <button role="tab" data-tab="plogs"    aria-selected="false">Product Logs</button>
   <button role="tab" data-tab="caches"   aria-selected="false">Housekeeping</button>
   <button role="tab" data-tab="health"   aria-selected="false">Health</button>
 </nav>
@@ -123,6 +144,63 @@ input:focus{outline:2px solid var(--accent);outline-offset:1px}
   <h2>launchd jobs</h2>
   <div class="grid" id="svc-list"><div class="loading">Loading…</div></div>
 </section>
+
+<!-- ── Service logs ────────────────────────────────────────────────── -->
+<section id="tab-logs" hidden>
+  <div class="listhead">
+    <h2>DuCorn services</h2>
+    <span class="spacer"></span>
+    <label class="chk" for="sort-stack">sort</label>
+    <select id="sort-stack" class="sel" data-kind="stack">
+      <option value="recent" selected>most recently written</option>
+      <option value="name">name</option>
+      <option value="size">size, largest first</option>
+      <option value="service">service</option>
+    </select>
+  </div>
+  <div class="card" id="list-stack"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- ── Product logs ────────────────────────────────────────────────── -->
+<section id="tab-plogs" hidden>
+  <div class="listhead">
+    <h2>Products</h2>
+    <span class="spacer"></span>
+    <label class="chk" for="sort-product">sort</label>
+    <select id="sort-product" class="sel" data-kind="product">
+      <option value="recent" selected>most recently written</option>
+      <option value="name">name</option>
+      <option value="size">size, largest first</option>
+      <option value="service">service</option>
+    </select>
+  </div>
+  <div class="card" id="list-product"><div class="loading">Loading…</div></div>
+</section>
+
+<!-- One viewer, moved into whichever tab opened it. Two copies would be two
+     sets of listeners and two ways for the filter to drift out of step. -->
+<div id="log-viewer" hidden>
+    <h2 id="log-title">—</h2>
+    <div class="card">
+      <div class="logbar">
+        <input type="text" id="log-q" placeholder="filter — plain text, or a regex if you tick it"
+               autocomplete="off" spellcheck="false">
+        <label class="chk"><input type="checkbox" id="log-regex"> regex</label>
+        <label class="chk"><input type="checkbox" id="log-case"> Aa</label>
+        <label class="chk"><input type="checkbox" id="log-invert"> hide matches</label>
+        <select id="log-lines" class="sel">
+          <option value="200">200 lines</option>
+          <option value="500" selected>500 lines</option>
+          <option value="2000">2000 lines</option>
+          <option value="5000">5000 lines</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="log-follow"> follow</label>
+        <button class="act" id="log-refresh">Refresh</button>
+      </div>
+      <div class="meta" id="log-meta"></div>
+      <pre class="raw" id="log-raw"></pre>
+    </div>
+</div>
 
 <!-- ── Housekeeping ────────────────────────────────────────────────── -->
 <section id="tab-caches" hidden>
@@ -169,14 +247,18 @@ function flash(msg, kind) {
 }
 
 /* ── tabs ─────────────────────────────────────────────────────────── */
-const LOADERS = { env: loadEnv, services: loadServices,
-                  caches: loadCaches, health: loadHealth };
+const LOADERS = { env: loadEnv, services: loadServices, logs: loadLogs,
+                  plogs: loadPLogs, caches: loadCaches, health: loadHealth };
 document.querySelectorAll("nav button").forEach(b => {
   b.addEventListener("click", () => {
     document.querySelectorAll("nav button").forEach(o =>
       o.setAttribute("aria-selected", String(o === b)));
     document.querySelectorAll("section").forEach(s =>
       s.hidden = s.id !== "tab-" + b.dataset.tab);
+    /* leaving Logs must stop the poll — a "follow" left running in a hidden
+       tab is a request every 3s forever, and the reason it is easy to miss
+       is that nothing on screen shows it happening. */
+    if (b.dataset.tab !== "logs" && b.dataset.tab !== "plogs") stopFollow();
     LOADERS[b.dataset.tab]();
   });
 });
@@ -310,6 +392,186 @@ async function loadServices() {
     });
   } catch (err) { box.innerHTML = ""; box.appendChild(el("div","err",err.message)); }
 }
+
+/* ── logs ─────────────────────────────────────────────────────────── */
+let LOG_ID = null, FOLLOW = null;
+
+function stopFollow() {
+  if (FOLLOW) { clearInterval(FOLLOW); FOLLOW = null; }
+  const f = $("#log-follow"); if (f) f.checked = false;
+}
+
+const LOG_SOURCES = { stack: [], product: [] };
+
+/* A log that has never been written has no mtime and no size. Sorting those
+   as zero buries them under everything; they go last in every order, and
+   keep their own relative order, so the list never reshuffles unpredictably. */
+const SORTS = {
+  recent:  (a, b) => (b.mtime || 0) - (a.mtime || 0),
+  size:    (a, b) => b.size - a.size,
+  name:    (a, b) => a.path.split("/").pop().localeCompare(b.path.split("/").pop()),
+  service: (a, b) => a.service.localeCompare(b.service) ||
+                     a.stream.localeCompare(b.stream),
+};
+
+function sortSources(list, kind) {
+  const how = SORTS[$("#sort-" + kind).value] || SORTS.recent;
+  const live = list.filter(s => s.exists).sort(how);
+  const dead = list.filter(s => !s.exists).sort(SORTS.name);
+  return live.concat(dead);
+}
+
+/* Declarations, not `const` arrows. LOADERS is built near the top of this
+   script and references both; a const is hoisted but not initialised, so the
+   page died at load with "Cannot access 'loadLogs' before initialization".
+   Every other loader here is a declaration — these two now match. */
+function loadLogs()  { return loadKind("stack"); }
+function loadPLogs() { return loadKind("product"); }
+
+async function loadKind(kind) {
+  const box = $("#list-" + kind);
+  try {
+    const d = await api("/api/logs?kind=" + kind);
+    LOG_SOURCES[kind] = d.sources;
+    renderLogList(kind);
+  } catch (err) {
+    box.innerHTML = ""; box.appendChild(el("div", "err", err.message));
+  }
+}
+
+function renderLogList(kind) {
+  const box = $("#list-" + kind);
+  box.innerHTML = "";
+  const all = LOG_SOURCES[kind];
+  if (!all.length) {
+    box.appendChild(el("div", "loading", kind === "product"
+      ? "no product has written a log yet"
+      : "no log files found"));
+    return;
+  }
+  const claimed = sortSources(all.filter(s => s.claimed), kind);
+  const loose   = sortSources(all.filter(s => !s.claimed), kind);
+  claimed.forEach(s => box.appendChild(logRow(s)));
+  if (loose.length) {
+    const h = el("div", "meta",
+      "not claimed by any launchd job — written by scripts, not services");
+    h.style.margin = "14px 0 2px"; box.appendChild(h);
+    loose.forEach(s => box.appendChild(logRow(s)));
+  }
+}
+
+/* Re-sorts what is already loaded. No refetch — the data has not changed,
+   only the order, and a network round trip to reorder a list you are
+   looking at is how a control starts feeling slow. */
+document.querySelectorAll("select[data-kind]").forEach(sel =>
+  sel.addEventListener("change", () => renderLogList(sel.dataset.kind)));
+
+function logRow(s) {
+  const row = el("div", "row");
+  const left = el("div");
+  const name = el("div", "name",
+    s.service + (s.stream === "log" ? "" : "  (" + s.stream + ")"));
+  left.appendChild(name);
+  const where = s.path.replace(/^.*\/DC\//, "");
+  left.appendChild(el("div", "meta", s.exists
+    ? where + " · " + kb(s.size) + (s.mtime
+        ? " · " + new Date(s.mtime * 1000).toLocaleString() : "")
+    : where + " · not written yet"));
+  const b = el("button", "act", "View");
+  if (!s.exists) b.disabled = true;
+  b.addEventListener("click", () => openLog(s));
+  row.appendChild(left); row.appendChild(b);
+  return row;
+}
+
+function openLog(s) {
+  LOG_ID = s.id;
+  const v = $("#log-viewer");
+  /* Move the one viewer under the tab that opened it, so it never appears
+     in the other tab showing a log that tab does not list. */
+  $("#tab-" + (s.kind === "product" ? "plogs" : "logs")).appendChild(v);
+  v.hidden = false;
+  $("#log-title").textContent =
+    s.service + (s.stream === "log" ? "" : " · " + s.stream);
+  stopFollow();
+  refreshLog();
+  v.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function refreshLog() {
+  if (!LOG_ID) return;
+  const q = $("#log-q").value;
+  const p = new URLSearchParams({
+    id: LOG_ID, lines: $("#log-lines").value, q: q,
+    regex: $("#log-regex").checked ? 1 : 0,
+    case:  $("#log-case").checked  ? 1 : 0,
+    invert:$("#log-invert").checked? 1 : 0,
+  });
+  const raw = $("#log-raw"), meta = $("#log-meta");
+  try {
+    const d = await api("/api/logs/read?" + p.toString());
+    raw.innerHTML = "";
+    if (!d.lines.length) {
+      raw.appendChild(el("span", "empty",
+        d.note || (q ? "nothing matches " + JSON.stringify(q)
+                     : "the file is empty")));
+    } else {
+      /* Built as text nodes, never innerHTML — a log line is arbitrary
+         bytes from a subprocess, and this page is the one that edits keys. */
+      const hi = q && !$("#log-invert").checked;
+      const frag = document.createDocumentFragment();
+      d.lines.forEach(line => {
+        frag.appendChild(hi ? mark(line, q, $("#log-regex").checked,
+                                   $("#log-case").checked)
+                            : document.createTextNode(line));
+        frag.appendChild(document.createTextNode("\n"));
+      });
+      raw.appendChild(frag);
+    }
+    const bits = [];
+    if (q) bits.push(d.matched.toLocaleString() + " matching of " +
+                     d.scanned.toLocaleString() + " lines");
+    else   bits.push(d.scanned.toLocaleString() + " lines read");
+    bits.push(kb(d.size) + " on disk");
+    if (d.truncated) bits.push("showing the last " + d.lines.length);
+    if (d.capped) bits.push("only the last 64 MB was scanned");
+    meta.textContent = bits.join(" · ");
+    raw.scrollTop = raw.scrollHeight;
+  } catch (err) {
+    raw.innerHTML = "";
+    raw.appendChild(el("span", "empty", err.message));
+    meta.textContent = "";
+    stopFollow();          /* stop polling something that is erroring */
+  }
+}
+
+function mark(line, q, isRegex, isCase) {
+  const span = document.createElement("span");
+  let rx;
+  try {
+    rx = new RegExp(isRegex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+                    isCase ? "g" : "gi");
+  } catch (e) { return document.createTextNode(line); }
+  let last = 0, m, guard = 0;
+  while ((m = rx.exec(line)) !== null && guard++ < 500) {
+    if (m.index > last) span.appendChild(
+      document.createTextNode(line.slice(last, m.index)));
+    span.appendChild(el("mark", null, m[0]));
+    last = m.index + m[0].length;
+    if (m[0].length === 0) rx.lastIndex++;      /* zero-width match */
+  }
+  span.appendChild(document.createTextNode(line.slice(last)));
+  return span;
+}
+
+$("#log-refresh").addEventListener("click", refreshLog);
+$("#log-q").addEventListener("keydown", e => { if (e.key === "Enter") refreshLog(); });
+["#log-regex", "#log-case", "#log-invert", "#log-lines"].forEach(sel =>
+  $(sel).addEventListener("change", refreshLog));
+$("#log-follow").addEventListener("change", e => {
+  if (FOLLOW) { clearInterval(FOLLOW); FOLLOW = null; }
+  if (e.target.checked) FOLLOW = setInterval(refreshLog, 3000);
+});
 
 /* ── housekeeping ─────────────────────────────────────────────────── */
 const RISK = { none: ["p-dim","safe"], low: ["p-go","low risk"],

@@ -36,6 +36,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+from collections import deque
 from pathlib import Path
 
 DC = Path(os.environ.get("DUCORN_ROOT", "/Users/ducorn/DC"))
@@ -142,6 +143,205 @@ def service_state() -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Logs
+#
+# The paths are read out of the plists, not listed here. Every launchd job
+# already declares StandardOutPath and StandardErrorPath; that IS where its
+# output goes, by definition. A second list in this file would be a second
+# copy of one fact, and the first time someone changed a plist the admin page
+# would quietly show them the wrong file — which is the failure mode this
+# stack keeps producing.
+#
+# Files in logs/ that no plist claims are listed separately as unclaimed,
+# rather than hidden. They are usually the ones worth looking at.
+# ─────────────────────────────────────────────────────────────────────────────
+LOGS = DC / "logs"
+PRODUCTS = DC / "ducorn-products" / "products"
+_OUT = re.compile(r"<key>StandardOutPath</key>\s*<string>([^<]+)</string>")
+_ERR = re.compile(r"<key>StandardErrorPath</key>\s*<string>([^<]+)</string>")
+_WD = re.compile(r"<key>WorkingDirectory</key>\s*<string>([^<]+)</string>")
+
+
+def product_dirs() -> set:
+    try:
+        return {p.name for p in PRODUCTS.iterdir() if p.is_dir()}
+    except OSError:
+        return set()
+
+
+def classify(short: str, dirs: set):
+    """
+    Stack service, or pipeline-built product?
+
+    NOT a list in this file. The deployer names each launchd label after the
+    product it is deploying, so a product's label suffix IS its directory
+    name — com.ducorn.ducorn-run-history -> products/ducorn-run-history. The
+    stack services were named by hand and match no directory: com.ducorn.admin
+    runs out of products/ducorn-admin, but "admin" is not "ducorn-admin".
+
+    WorkingDirectory cannot do this job. admin, api and pdf all run from
+    inside products/ and are stack services; ducorn-spend-status-web is a
+    product and runs from ~/DC.
+
+    The -web / -api suffix is the deployer's own, for the two halves of a
+    page+api product, so it comes off before the comparison.
+
+    If the deployer's naming ever changes, this misfiles rather than crashing
+    — which is why every row carries the directory it matched, visible in the
+    page, instead of a verdict you have to trust.
+    """
+    if short in dirs:
+        return "product", short
+    for suffix in ("-web", "-api"):
+        if short.endswith(suffix) and short[: -len(suffix)] in dirs:
+            return "product", short[: -len(suffix)]
+    return "stack", None
+
+# A filtered search reads the file. Past this, only the tail is scanned —
+# a runaway log should not turn one click into a minute of disk.
+SCAN_CAP = 64 * 1024 * 1024
+MAX_LINES = 5000
+
+
+def _under_dc(raw: str):
+    """A path from a plist, accepted only if it lands inside ~/DC."""
+    try:
+        p = Path(raw).expanduser().resolve()
+        p.relative_to(DC.resolve())
+    except (ValueError, OSError):
+        return None
+    return p
+
+
+def log_sources() -> list:
+    """Every log this stack writes, discovered from the plists."""
+    out, claimed, dir_kind = [], set(), {}
+    dirs = product_dirs()
+
+    for plist in sorted(LAUNCHD.glob("*.plist")):
+        try:
+            text = plist.read_text(errors="replace")
+        except OSError:
+            continue
+        m = re.search(r"<key>Label</key>\s*<string>([^<]+)</string>", text)
+        if not m or not _LABEL.match(m.group(1)):
+            continue
+        label = m.group(1)
+        short = label.replace("com.ducorn.", "")
+
+        seen = {}
+        for stream, rx in (("out", _OUT), ("err", _ERR)):
+            hit = rx.search(text)
+            if not hit:
+                continue
+            p = _under_dc(hit.group(1))
+            if p is None:
+                continue
+            seen[stream] = p
+
+        # Most of these plists send stdout and stderr to the same file. Listing
+        # it twice would be two buttons opening one thing.
+        if seen.get("out") and seen.get("out") == seen.get("err"):
+            seen = {"log": seen["out"]}
+
+        kind, product = classify(short, dirs)
+
+        # Remember how the JOB that runs out of a directory was classified.
+        # products/ducorn-admin is the admin service's working directory, not
+        # a pipeline product, and only the label knows that — so a stray .log
+        # in there must inherit the job's verdict, not the folder's name.
+        wd = _WD.search(text)
+        if wd:
+            wp = _under_dc(wd.group(1))
+            if wp is not None and wp.parent == PRODUCTS.resolve():
+                dir_kind[wp.name] = (kind, product)
+
+        for stream, p in seen.items():
+            claimed.add(p)
+            out.append({"id": f"{short}:{stream}", "service": short,
+                        "label": label, "stream": stream, "path": str(p),
+                        "claimed": True, "kind": kind, "product": product})
+
+    # Files nothing declares. Under logs/ they are the scripts — slack_bot.log
+    # and friends — so they belong with the stack. Under a product directory
+    # they belong to that product.
+    if LOGS.is_dir():
+        for p in sorted(LOGS.glob("*.log")):
+            rp = _under_dc(str(p))
+            if rp is None or rp in claimed:
+                continue
+            out.append({"id": f"unclaimed:{p.name}", "service": p.stem,
+                        "label": None, "stream": "log", "path": str(rp),
+                        "claimed": False, "kind": "stack", "product": None})
+
+    if PRODUCTS.is_dir():
+        for d in sorted(PRODUCTS.iterdir()):
+            if not d.is_dir():
+                continue
+            for p in sorted(list(d.glob("*.log")) + list(d.glob("logs/*.log"))):
+                rp = _under_dc(str(p))
+                if rp is None or rp in claimed:
+                    continue
+                kind, product = dir_kind.get(d.name, ("product", d.name))
+                out.append({"id": f"unclaimed:{d.name}/{p.name}",
+                            "service": d.name, "label": None, "stream": "log",
+                            "path": str(rp), "claimed": False,
+                            "kind": kind, "product": product})
+
+    for s in out:
+        p = Path(s["path"])
+        try:
+            st = p.stat()
+            s.update(exists=True, size=st.st_size, mtime=int(st.st_mtime))
+        except OSError:
+            s.update(exists=False, size=0, mtime=None)
+    return out
+
+
+def read_log(path: Path, lines: int, q: str, *, regex: bool, case: bool,
+             invert: bool) -> dict:
+    """Last `lines` lines, or the last `lines` that match `q`."""
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        return {"error": str(e), "lines": [], "size": 0}
+
+    matcher = None
+    if q:
+        if regex:
+            try:
+                matcher = re.compile(q, 0 if case else re.I).search
+            except re.error as e:
+                return {"error": f"bad pattern: {e}", "lines": [], "size": size}
+        else:
+            needle = q if case else q.lower()
+            matcher = (lambda s: needle in s) if case \
+                else (lambda s: needle in s.lower())
+
+    start = max(0, size - SCAN_CAP)
+    keep, scanned, matched = deque(maxlen=lines), 0, 0
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            if start:
+                fh.seek(start)
+                fh.readline()                 # drop the half line we landed in
+            for line in fh:
+                scanned += 1
+                line = line.rstrip("\n")
+                if matcher is not None and bool(matcher(line)) == invert:
+                    continue
+                matched += 1
+                keep.append(line)
+    except OSError as e:
+        return {"error": str(e), "lines": [], "size": size}
+
+    return {"lines": list(keep), "size": size, "scanned": scanned,
+            "matched": matched if q else scanned,
+            "capped": start > 0,
+            "truncated": (matched if q else scanned) > len(keep)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Caches — a fixed allowlist. Nothing else is ever deleted.
 # ─────────────────────────────────────────────────────────────────────────────
 CACHE_TARGETS = {
@@ -235,10 +435,30 @@ def cache_state() -> list:
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def page(who: str = Depends(require_login)):
+    """
+    no-store, deliberately.
+
+    The page is one file with no version in its URL, so a browser that
+    heuristically caches it keeps serving the old markup after a reinstall —
+    the service restarts, the install reports success, and the new tab is
+    simply not there. That is indistinguishable from a broken deploy, and it
+    cost a round trip to work out. An admin page is not worth caching.
+
+    The build stamp goes in a header so `curl -I` can answer "is the running
+    page the one I just installed?" without reading the HTML.
+    """
     f = HERE / "index.html"
     if not f.is_file():
         return HTMLResponse("<h1>index.html is missing</h1>", status_code=500)
-    return HTMLResponse(f.read_text(encoding="utf-8"))
+    try:
+        stamp = str(int(f.stat().st_mtime))
+    except OSError:
+        stamp = "unknown"
+    return HTMLResponse(
+        f.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, must-revalidate",
+                 "Pragma": "no-cache",
+                 "X-DuCorn-Page-Built": stamp})
 
 
 @app.get("/api/env")
@@ -328,6 +548,39 @@ def api_restart(body: ServiceBody, who: str = Depends(require_login)):
     audit(who, "restarted", f"{body.label} (exit {r.returncode})")
     return {"label": body.label, "exit": r.returncode,
             "output": (r.stdout + r.stderr).strip()[:400]}
+
+
+@app.get("/api/logs")
+def api_logs(kind: str = "", who: str = Depends(require_login)):
+    every = log_sources()                       # one scan, not three
+    counts = {"stack": sum(1 for s in every if s["kind"] == "stack"),
+              "product": sum(1 for s in every if s["kind"] == "product")}
+    if kind in ("stack", "product"):
+        every = [s for s in every if s["kind"] == kind]
+    return {"sources": every, "counts": counts}
+
+
+@app.get("/api/logs/read")
+def api_logs_read(id: str, lines: int = 500, q: str = "",
+                  regex: int = 0, case: int = 0, invert: int = 0,
+                  who: str = Depends(require_login)):
+    # The id is looked up in the discovered set. No path from the browser is
+    # ever opened — the caller picks a row, not a filename.
+    src = next((s for s in log_sources() if s["id"] == id), None)
+    if src is None:
+        raise HTTPException(404, f"no such log: {id}")
+    if not src["exists"]:
+        return {"source": src, "lines": [],
+                "note": "the service has not written this file yet"}
+
+    lines = max(50, min(int(lines), MAX_LINES))
+    out = read_log(Path(src["path"]), lines, q.strip(),
+                   regex=bool(regex), case=bool(case), invert=bool(invert))
+    if out.get("error") and not out["lines"]:
+        return JSONResponse({"error": out["error"], "source": src},
+                            status_code=400)
+    out["source"] = src
+    return out
 
 
 def doctor_python() -> str:
