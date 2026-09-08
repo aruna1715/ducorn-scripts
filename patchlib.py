@@ -45,7 +45,8 @@ import ast
 import io
 import tokenize
 
-__all__ = ["code_only", "assert_order", "py_ok", "PatchCheckFailed"]
+__all__ = ["code_only", "assert_order", "calls_in", "py_ok",
+           "PatchCheckFailed"]
 
 
 class PatchCheckFailed(AssertionError):
@@ -127,6 +128,35 @@ def assert_order(src: str, func: str, first: str, then: str) -> None:
             f"the thing being fixed, so this is not a pass")
 
 
+def calls_in(src: str, func: str | None, name: str) -> list:
+    """
+    Every call to `name` inside `func`, as source text. func=None means the
+    whole module.
+
+    For counting. A patch that adds a call verified it by counting that call
+    across the WHOLE FILE and asserting a total — which required guessing how
+    many already existed. The guess was wrong (the existing ones passed an
+    extra argument, so an exact-string count never saw them), the patch was
+    correct, and the operator was told to restore a good file.
+
+    Count what you changed, where you changed it. Scoped to one function, a
+    call site you did not write cannot move your number; taken from the parse
+    tree, neither can a comment.
+    """
+    tree = py_ok(src, func or "the module")
+    scope = _func(tree, func) if func else tree
+    found = []
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        called = (f.id if isinstance(f, ast.Name)
+                  else f.attr if isinstance(f, ast.Attribute) else "")
+        if called == name:
+            found.append(ast.get_source_segment(src, node) or called)
+    return found
+
+
 if __name__ == "__main__":
     FIXTURE = '''
 """A module docstring mentioning --skill and SELECT and title LIKE."""
@@ -171,6 +201,23 @@ def start(slug):
         bad.append("py_ok accepted a syntax error")
     except PatchCheckFailed:
         pass
+
+    COUNTED = '''
+def other(t):
+    mark(t, "failed", "skill")        # an existing call, extra argument
+
+
+def start(t):
+    """mark(t, "failed") in prose does not count."""
+    # nor does mark(t, "failed") in a comment
+    mark(t, "failed")
+'''
+    if len(calls_in(COUNTED, "start", "mark")) != 1:
+        bad.append("calls_in miscounted the function it was asked about")
+    if len(calls_in(COUNTED, None, "mark")) != 2:
+        bad.append("calls_in missed a call at module scope")
+    if 'mark(t, "failed", "skill")' not in calls_in(COUNTED, "other", "mark")[0]:
+        bad.append("calls_in did not return the call source")
 
     print("patchlib OK" if not bad else "patchlib BAD\n  " + "\n  ".join(bad))
     raise SystemExit(0 if not bad else 1)
