@@ -85,15 +85,29 @@ def week_spend() -> float:
 
 def daily_limit() -> float:
     """
-    The cap, from the environment the API was started with.
+    The cap. One answer, whoever asks.
 
-    Deliberately read on every call rather than captured at import: the
-    admin page writes shared/.env, and a limit frozen at process start is a
-    limit the page cannot actually change.
+    Read on every call rather than captured at import: the admin page writes
+    DUCORN_DAILY_BUDGET into shared/.env, and a limit frozen at process start
+    is a limit that page cannot actually change.
+
+    shared/.env is consulted when the variable is not already in the
+    environment. Without this the API said $50.00 — it loads shared/.env at
+    startup — while `python3 scripts/ducorn_spend.py` in a shell said $3.00,
+    the built-in default. Two answers to "what is the limit", decided by who
+    was asking, which is the whole failure mode this module exists to remove.
     """
+    raw = os.environ.get("DUCORN_DAILY_BUDGET")
+    if raw is None:
+        try:
+            from ducorn_env import load_ducorn_env
+            load_ducorn_env()
+            raw = os.environ.get("DUCORN_DAILY_BUDGET")
+        except Exception:
+            pass
     try:
-        return float(os.environ.get("DUCORN_DAILY_BUDGET", "3.0"))
-    except ValueError:
+        return float(raw) if raw is not None else 3.0
+    except (TypeError, ValueError):
         return 3.0
 
 
@@ -132,6 +146,20 @@ def budget_status(limit: float = None) -> dict:
 
 
 if __name__ == "__main__":
+    # DELIBERATELY inside __main__ and nowhere else. ensure_modules RE-EXECS
+    # the interpreter, and this module is imported by the activity API — a
+    # re-exec at import time would restart the service.
+    #
+    # It belongs here because this file has a command line and imports
+    # psycopg2, and `python3` on this Mac is 3.14, which does not have it.
+    # Without this, `python3 scripts/ducorn_spend.py` reports "spend could not
+    # be read: psycopg2 is not available" — an interpreter problem wearing the
+    # costume of a database problem. I worked around that in the patch script
+    # by choosing an interpreter there, which fixed the caller and left the
+    # module broken for everyone else.
+    from bootstrap_python import ensure_modules
+    ensure_modules("psycopg2")
+
     import argparse
     import json
     import sys
