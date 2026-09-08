@@ -330,10 +330,17 @@ def next_phase(name: str):
             # same phase twice — two runs writing one product directory, and
             # the second one reading the first's half-written files as though
             # a previous phase had produced them.
+            # NOT --mark pending. The run wins over the stored status
+            # (see _effective), so marking it pending changes nothing while
+            # the row says running. Stopping the run is what moves it.
             raise EpicError(
                 f"phase {p['seq']} ({p['title']}) is already running as "
-                f"'{p['phase_slug']}'. Wait for it, or if that run died:\n"
-                f"  python3 scripts/product_epics.py --mark {p['phase_slug']} pending")
+                f"'{p['phase_slug']}'.\n"
+                f"Wait for it — or if that run is dead, stop it, which sets "
+                f"the row to 'stopped' and frees the phase:\n"
+                f"  press STOP on that run in the dashboard, or\n"
+                f"  curl -sX POST localhost:8000/pipeline/kill/{p['phase_slug']} "
+                f"-H \"x-api-key: $DUCORN_API_TOKEN\"")
         unmet = [d for d in p["depends_on"]
                  if by_seq.get(d, {}).get("status") not in ("complete", "skipped")]
         if unmet:
@@ -506,6 +513,33 @@ def mark(slug: str, status: str) -> None:
                         f"Known: {', '.join(PHASE_STATUS)}")
     with _conn() as c:
         cur = c.cursor()
+
+        # Refuse a write the run would override.
+        #
+        # _effective() gives the run the last word wherever there is one, so
+        # marking a phase 'pending' while its run row says 'running' writes a
+        # value nothing will ever read. That is what next_phase used to
+        # recommend, and it looked like it worked.
+        #
+        # 'skipped' is exempt because _effective exempts it: a person's
+        # decision outranks any run, which is the entire reason that status
+        # exists.
+        if status != "skipped":
+            cur.execute("SELECT status FROM pipeline_runs WHERE slug = %s",
+                        (slug,))
+            _r = cur.fetchone()
+            _run = _r[0] if _r else None
+            if _run and _effective("pending", _run) != status:
+                raise EpicError(
+                    f"{slug!r} has a pipeline run with status {_run!r}, and a "
+                    f"run outranks the stored status — writing {status!r} "
+                    f"here would change nothing.\n"
+                    f"Change the RUN instead:\n"
+                    f"  press STOP on it in the dashboard, or\n"
+                    f"  curl -sX POST localhost:8000/pipeline/kill/{slug} "
+                    f"-H \"x-api-key: $DUCORN_API_TOKEN\"\n"
+                    f"To override regardless of any run, mark it 'skipped'.")
+
         stamp = ("started_at = now()" if status == "running"
                  else "completed_at = now()" if status in
                  ("complete", "failed", "skipped") else "id = id")

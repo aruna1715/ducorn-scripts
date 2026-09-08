@@ -240,6 +240,45 @@ def main():
         die(f"no epic named {a.epic!r}. "
             f"python3 scripts/product_epics.py --list")
 
+    # BEFORE the startability question. --dry-run writes nothing and spends
+    # nothing, and asking next_phase() first meant "phase 1 is already
+    # running" refused to SHOW the brief — at the one moment you want to read
+    # it, which is after a run of that phase has died.
+    #
+    # This asks something weaker than next_phase on purpose: which phase is
+    # this ABOUT, not which phase may start. The start path below still asks
+    # the real question, because that is the one spending money.
+    if a.dry_run:
+        live = [p for p in epic["phases"]
+                if p["status"] not in ("complete", "skipped")]
+        if not live:
+            print(f"{a.epic}: every phase is finished — nothing to show.")
+            return 0
+        p = live[0]
+        dslug = p["phase_slug"]
+        try:
+            text = brief_text(dslug)
+        except Exception as e:
+            die(f"the brief could not be built: {e}")
+        print(f"{a.epic}  →  phase {p['seq']} of {len(epic['phases'])} — "
+              f"{p['title']}  [{p['status']}]")
+        print(f"\n── the brief start would write ({len(text):,} chars) ──")
+        print(f"   to   {DOCS / (dslug + '-PRD.md')}")
+        print(f"   read by node_research as the founder brief, first act of "
+              f"the run\n")
+        head = text.splitlines()
+        for line in head[:40]:
+            print("   " + line)
+        if len(head) > 40:
+            print(f"   … and {len(head) - 40} more lines")
+        print("""
+Nothing was written and nothing was spent.
+
+This proves the brief exists and is not empty — the thing the failed run
+tripped on. It does not prove the run succeeds; only starting it does.
+""")
+        return 0
+
     try:
         phase = pe.next_phase(a.epic)
     except pe.EpicError as e:
@@ -287,34 +326,6 @@ def main():
         print(f"  budget       {budget['message']}")
     except Exception as e:
         print(f"  budget       could not be read ({type(e).__name__})")
-
-    if a.dry_run:
-        # This used to run skill_runner --skill 01. skill_runner is not where
-        # a run begins — langgraph_flow.node_research is — so the check
-        # exercised an entry point the run does not use and passed on code
-        # that could not start. It now shows the one thing node_research
-        # reads, and claims nothing beyond that.
-        try:
-            text = brief_text(slug)
-        except Exception as e:
-            die(f"the brief could not be built: {e}")
-        target = DOCS / f"{slug}-PRD.md"
-        print(f"\n── the brief start would write ({len(text):,} chars) ──")
-        print(f"   to   {target}")
-        print(f"   read by node_research as the founder brief, first act of "
-              f"the run\n")
-        head = text.splitlines()
-        for line in head[:40]:
-            print("   " + line)
-        if len(head) > 40:
-            print(f"   … and {len(head) - 40} more lines")
-        print(f"""
-Nothing was written and nothing was spent.
-
-This proves the brief exists and is not empty — the thing the failed run
-tripped on. It does not prove the run succeeds; only starting it does.
-""")
-        return 0
 
     if not a.apply:
         print("\nRe-run with --apply to start it, or --dry-run to see the "
