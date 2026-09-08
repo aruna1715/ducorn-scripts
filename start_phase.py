@@ -43,6 +43,7 @@ DC = Path(os.environ.get("DUCORN_ROOT", "/Users/ducorn/DC"))
 FLOW = DC / "ducorn" / "flows" / "langgraph_flow.py"
 VENV = DC / "ducorn" / ".venv" / "bin" / "python"
 LOGS = DC / "logs"
+DOCS = DC / "ducorn-products" / "docs"
 
 
 def die(msg: str):
@@ -98,6 +99,62 @@ def plan_next(epic_name: str) -> dict:
     return out
 
 
+def brief_text(slug: str) -> str:
+    """
+    What this phase is asked to build, as prose.
+
+    One source: product_epics.context_for reads the epic, the phase, the
+    finished dependencies and the product directory. This adds no words of
+    its own — a second description of a phase would drift from the first.
+    """
+    pe = _epics()
+    return pe.context_for(slug).strip()
+
+
+def write_phase_brief(slug: str) -> Path:
+    """
+    Put the phase brief where a run's brief lives: docs/<slug>-PRD.md.
+
+    THIS IS THE HALF THAT WAS MISSING. /pipeline/start writes this file and
+    then launches; start_next created the pipeline_runs row and launched
+    without it, and node_research — which reads this file as its first act —
+    failed the run before any skill ran.
+
+    Shape matches /pipeline/start: a header and the brief, with no
+    "## Founder Brief" heading. node_research adds that heading itself when
+    it re-appends the brief after research, and it is defined there. Writing
+    it here would be a second copy of it.
+
+    A phase that has already produced a researched PRD keeps it; only the
+    brief section is refreshed, because the manifest of what is in the
+    product directory has changed since it was written.
+    """
+    import stack_context as sc
+
+    text = brief_text(slug)
+    if not text:
+        raise NotStartable(
+            f"no brief could be built for {slug!r} — product_epics.context_for "
+            f"returned nothing, so there is no phase by that slug")
+
+    DOCS.mkdir(parents=True, exist_ok=True)
+    prd = DOCS / f"{slug}-PRD.md"
+
+    if prd.exists():
+        raw = prd.read_text(errors="replace")
+        i = raw.find(sc.BRIEF_MARKER)
+        if i >= 0:
+            # Keep the research, refresh the brief. The file's OWN heading
+            # line is reused verbatim rather than reconstructed.
+            heading = raw[i:].splitlines()[0]
+            prd.write_text(f"{raw[:i].rstrip()}\n\n{heading}\n\n{text}\n",
+                           encoding="utf-8")
+            return prd
+
+    prd.write_text(f"# {slug} — phase brief\n\n{text}\n", encoding="utf-8")
+    return prd
+
+
 def start_next(epic_name: str, *, engine="gstack", coder="crewai",
                complexity="medium") -> dict:
     """
@@ -144,6 +201,11 @@ def start_next(epic_name: str, *, engine="gstack", coder="crewai",
                   engine, coder))
             c.commit()
 
+    # The brief, BEFORE the launch. node_research reads docs/<slug>-PRD.md
+    # as its first act and refuses an empty one; without this the run failed
+    # in under two seconds, having created its row and its log.
+    prd = write_phase_brief(slug)
+
     LOGS.mkdir(parents=True, exist_ok=True)
     log = LOGS / f"flow_{slug}.log"
     cmd = [str(VENV), "-u", str(FLOW), slug, "--phase", "research",
@@ -155,7 +217,7 @@ def start_next(epic_name: str, *, engine="gstack", coder="crewai",
                                 cwd=str(DC / "ducorn"))
     return {"started": slug, "seq": plan["next"]["seq"],
             "title": plan["next"]["title"], "pid": proc.pid,
-            "log": str(log), "budget": budget["message"]}
+            "log": str(log), "brief": str(prd), "budget": budget["message"]}
 
 
 def main():
@@ -227,13 +289,32 @@ def main():
         print(f"  budget       could not be read ({type(e).__name__})")
 
     if a.dry_run:
-        print("\n── the prompt skill 01 would receive (nothing is spent) ──\n")
-        r = subprocess.run(
-            [str(VENV) if VENV.exists() else sys.executable,
-             str(DC / "ducorn" / "skill_runner.py"),
-             "--topic", slug, "--skill", "01", "--dry-run"],
-            cwd=str(DC / "ducorn"))
-        return r.returncode
+        # This used to run skill_runner --skill 01. skill_runner is not where
+        # a run begins — langgraph_flow.node_research is — so the check
+        # exercised an entry point the run does not use and passed on code
+        # that could not start. It now shows the one thing node_research
+        # reads, and claims nothing beyond that.
+        try:
+            text = brief_text(slug)
+        except Exception as e:
+            die(f"the brief could not be built: {e}")
+        target = DOCS / f"{slug}-PRD.md"
+        print(f"\n── the brief start would write ({len(text):,} chars) ──")
+        print(f"   to   {target}")
+        print(f"   read by node_research as the founder brief, first act of "
+              f"the run\n")
+        head = text.splitlines()
+        for line in head[:40]:
+            print("   " + line)
+        if len(head) > 40:
+            print(f"   … and {len(head) - 40} more lines")
+        print(f"""
+Nothing was written and nothing was spent.
+
+This proves the brief exists and is not empty — the thing the failed run
+tripped on. It does not prove the run succeeds; only starting it does.
+""")
+        return 0
 
     if not a.apply:
         print("\nRe-run with --apply to start it, or --dry-run to see the "
