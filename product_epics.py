@@ -233,6 +233,15 @@ def next_phase(name: str):
     for p in epic["phases"]:
         if p["status"] in ("complete", "skipped"):
             continue
+        if p["status"] == "running":
+            # Already in flight. Returning it as "next" invites starting the
+            # same phase twice — two runs writing one product directory, and
+            # the second one reading the first's half-written files as though
+            # a previous phase had produced them.
+            raise EpicError(
+                f"phase {p['seq']} ({p['title']}) is already running as "
+                f"'{p['phase_slug']}'. Wait for it, or if that run died:\n"
+                f"  python3 scripts/product_epics.py --mark {p['phase_slug']} pending")
         unmet = [d for d in p["depends_on"]
                  if by_seq.get(d, {}).get("status") not in ("complete", "skipped")]
         if unmet:
