@@ -63,6 +63,43 @@ PHASE_STATUS = ("pending", "running", "complete", "failed", "skipped")
 # a phase following a 400-file build does not get 400 lines.
 MANIFEST_FILES = 60
 
+# A phase's status IS its pipeline run's status.
+#
+# The alternative was a completion hook writing epic_phases.status when a run
+# finished — a second copy of a fact pipeline_runs already holds, and the
+# first time the hook missed a path the two would disagree with nothing to
+# say which was right.
+#
+# So the stored column is only used when there is no run yet, or when a human
+# said 'skipped'. Everything else is read from the run.
+RUN_TO_PHASE = {
+    "complete": "complete",
+    # A stopped, cancelled or archived run left the phase unfinished. 'failed'
+    # is right for both consequences that matter: it blocks the phases that
+    # depend on it, and next_phase offers it again for a retry.
+    "failed": "failed", "stopped": "failed",
+    "cancelled": "failed", "archived": "failed",
+    # Everything else is in flight. awaiting_approval included, deliberately:
+    # a phase paused at a gate must not be started a second time.
+    "created": "running", "started": "running", "running": "running",
+    "awaiting_approval": "running", "needs_intervention": "running",
+}
+
+
+def _effective(stored: str, run_status):
+    """
+    What a phase's status really is.
+
+    'skipped' is a decision a person made and nothing overrides it. Otherwise
+    the run wins where there is one, and the stored value is the answer only
+    before the phase has ever started.
+    """
+    if stored == "skipped":
+        return "skipped"
+    if run_status:
+        return RUN_TO_PHASE.get(run_status, stored)
+    return stored
+
 
 class EpicError(RuntimeError):
     pass
@@ -104,6 +141,28 @@ def _deps(value) -> list:
         return []
 
 
+def _roll_up(phases) -> str:
+    """
+    An epic's status, from its phases. Never set by hand.
+
+    Derived rather than stored for the same reason a phase's is: the phases
+    change when their RUNS change, and a stored epic status would go stale
+    the moment a run finished without anyone calling mark(). The column in
+    the database is a cache that mark() refreshes so direct SQL readers see
+    something sane; this function is what the module answers with.
+    """
+    if not phases:
+        return "planned"
+    seen = [p["status"] for p in phases]
+    if "failed" in seen:
+        return "failed"
+    if all(s in ("complete", "skipped") for s in seen):
+        return "complete"
+    if any(s in ("running", "complete") for s in seen):
+        return "running"
+    return "planned"
+
+
 def _conn():
     from ducorn_db import get_conn
     return get_conn()
@@ -133,17 +192,47 @@ def get(name: str):
             return None
         epic = dict(zip(("id", "name", "product_slug", "brief", "product_type",
                          "status", "created_at"), row))
-        cur.execute("""SELECT seq, phase_slug, title, brief, depends_on,
-                              status, started_at, completed_at
-                         FROM epic_phases WHERE epic_id = %s
-                        ORDER BY seq""", (epic["id"],))
+        cur.execute("""SELECT p.seq, p.phase_slug, p.title, p.brief,
+                              p.depends_on, p.status,
+                              p.started_at, p.completed_at, r.status
+                         FROM epic_phases p
+                    LEFT JOIN pipeline_runs r ON r.slug = p.phase_slug
+                        WHERE p.epic_id = %s
+                        ORDER BY p.seq""", (epic["id"],))
         epic["phases"] = []
         for r in cur.fetchall():
             p = dict(zip(("seq", "phase_slug", "title", "brief", "depends_on",
-                          "status", "started_at", "completed_at"), r))
+                          "stored_status", "started_at", "completed_at",
+                          "run_status"), r))
             p["depends_on"] = _deps(p["depends_on"])
+            p["status"] = _effective(p["stored_status"], p["run_status"])
             epic["phases"].append(p)
+    epic["stored_status"] = epic["status"]
+    epic["status"] = _roll_up(epic["phases"])
     return epic
+
+
+def all_names() -> list:
+    """
+    Every epic, newest first.
+
+    Exists because the activity API needed the list and reached for its own
+    SELECT — which put a second copy of this schema in a file that knows
+    nothing about it, and used a different cursor factory. The API's
+    connection returns dicts, so `row[0]` raised KeyError: 0, and the
+    endpoint reported its error as "0".
+    """
+    try:
+        with _conn() as c:
+            cur = c.cursor()
+            cur.execute("SELECT name FROM product_epics "
+                        "ORDER BY created_at DESC")
+            return [r[0] for r in cur.fetchall()]
+    except Exception as e:
+        if _missing_tables(e):
+            raise EpicsNotInstalled(
+                "migration 009 has not been applied; there are no epics") from e
+        raise
 
 
 def phase_for(slug: str):
@@ -158,9 +247,10 @@ def phase_for(slug: str):
             cur.execute("""SELECT p.seq, p.phase_slug, p.title, p.brief,
                                   p.depends_on, p.status,
                                   e.id, e.name, e.product_slug, e.brief,
-                                  e.product_type
+                                  e.product_type, r.status
                              FROM epic_phases p
                              JOIN product_epics e ON e.id = p.epic_id
+                        LEFT JOIN pipeline_runs r ON r.slug = p.phase_slug
                             WHERE p.phase_slug = %s""", (slug,))
             row = cur.fetchone()
     except Exception as e:
@@ -172,7 +262,9 @@ def phase_for(slug: str):
         return None
     return {
         "seq": row[0], "phase_slug": row[1], "title": row[2],
-        "brief": row[3], "depends_on": _deps(row[4]), "status": row[5],
+        "brief": row[3], "depends_on": _deps(row[4]),
+        "status": _effective(row[5], row[11] if len(row) > 11 else None),
+        "stored_status": row[5],
         "epic": {"id": row[6], "name": row[7], "product_slug": row[8],
                  "brief": row[9], "product_type": row[10]},
     }
@@ -396,7 +488,19 @@ def define(spec: dict) -> dict:
 
 
 def mark(slug: str, status: str) -> None:
-    """Record where a phase got to, and roll the epic's status up."""
+    """
+    Set a phase's STORED status.
+
+    Mostly you do not need this. A phase's status comes from its pipeline
+    run, so starting and finishing are recorded by the pipeline itself. The
+    two cases that are real:
+
+        skipped   a decision a person made; nothing overrides it
+        pending   reset a phase whose run died, so it can be started again
+
+    Writing 'complete' or 'failed' here is allowed but has no effect once a
+    run exists — the run is the answer.
+    """
     if status not in PHASE_STATUS:
         raise EpicError(f"{status!r} is not a phase status. "
                         f"Known: {', '.join(PHASE_STATUS)}")
@@ -413,22 +517,16 @@ def mark(slug: str, status: str) -> None:
             raise EpicError(f"{slug!r} is not a phase of any epic")
         epic_id = row[0]
 
-        # The epic's status is derived, never set by hand — two places
-        # deciding whether an epic is finished is how they disagree.
-        cur.execute("""SELECT status, count(*) FROM epic_phases
-                        WHERE epic_id = %s GROUP BY status""", (epic_id,))
-        counts = dict(cur.fetchall())
-        total = sum(counts.values())
-        if counts.get("failed"):
-            new = "failed"
-        elif counts.get("complete", 0) + counts.get("skipped", 0) == total:
-            new = "complete"
-        elif counts.get("running") or counts.get("complete"):
-            new = "running"
-        else:
-            new = "planned"
+        # Refresh the cached epic status using the SAME derivation get()
+        # uses, over EFFECTIVE phase statuses — so a phase whose run has
+        # finished counts as finished here too.
+        cur.execute("""SELECT p.status, r.status
+                         FROM epic_phases p
+                    LEFT JOIN pipeline_runs r ON r.slug = p.phase_slug
+                        WHERE p.epic_id = %s""", (epic_id,))
+        phases = [{"status": _effective(a, b)} for a, b in cur.fetchall()]
         cur.execute("""UPDATE product_epics SET status = %s, updated_at = now()
-                        WHERE id = %s""", (new, epic_id))
+                        WHERE id = %s""", (_roll_up(phases), epic_id))
         c.commit()
 
 
