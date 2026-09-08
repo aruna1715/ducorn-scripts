@@ -57,6 +57,27 @@ STATUS_CONTRACTS = {
         "failed",
         "skipped",
     ),
+    # ── epics: a product built over several runs (migration 009) ──────────
+    # An epic's status is DERIVED from its phases by product_epics.mark(),
+    # never set by hand. Two places deciding whether an epic is finished is
+    # how they come to disagree.
+    "product_epics": (
+        "planned",
+        "running",
+        "complete",
+        "failed",
+        "abandoned",
+    ),
+    # Same vocabulary as pipeline_skill_runs on purpose: a phase and a skill
+    # are both "a unit of work inside something larger", and one word for one
+    # idea is the whole argument of this file.
+    "epic_phases": (
+        "pending",
+        "running",
+        "complete",
+        "failed",
+        "skipped",
+    ),
 }
 
 
