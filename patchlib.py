@@ -57,34 +57,62 @@ def code_only(src: str) -> str:
     """
     Source with comments and docstrings gone.
 
-    Tokenised, not regexed: a '#' inside a string is not a comment, and a
-    regex cannot tell. Falls back to the raw text if the source does not
-    tokenise — a caller checking unparseable source has a bigger problem and
-    should hear about that one.
-    """
-    try:
-        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
-    except (tokenize.TokenError, IndentationError, SyntaxError):
-        return src
+    Docstrings are found through the PARSE TREE, not by guessing from token
+    order. The first version guessed — "a string token after a newline is a
+    docstring" — and a line break inside brackets emits a newline token, so
 
-    out, prev_type, prev_end = [], tokenize.INDENT, (1, 0)
-    for tok in toks:
-        if tok.type == tokenize.COMMENT:
+        raise GenerationError(
+            "no usable direction for any archetype: ")
+
+    lost its message. A check looking for that string reported a correct
+    patch as broken; a check asserting a string was ABSENT would have passed
+    when it should not. Comments still come from the token stream, which is
+    the right tool for those: a '#' inside a string is not a comment and a
+    regex cannot tell.
+    """
+    lines = src.splitlines(keepends=True)
+
+    # 1. Docstrings: only the first statement of a module, class or function.
+    drop = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        tree = None
+    if tree is not None:
+        for node in ast.walk(tree):
+            body = getattr(node, "body", None)
+            if not (isinstance(node, (ast.Module, ast.ClassDef,
+                                      ast.FunctionDef, ast.AsyncFunctionDef))
+                    and body):
+                continue
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                for ln in range(first.lineno,
+                                (first.end_lineno or first.lineno) + 1):
+                    drop.add(ln)
+
+    # 2. Comments, from the token stream.
+    cuts = {}
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+            if tok.type == tokenize.COMMENT:
+                row, col = tok.start
+                cuts[row] = min(cuts.get(row, col), col)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+
+    out = []
+    for i, line in enumerate(lines, start=1):
+        if i in drop:
+            out.append("\n" if line.endswith("\n") else "")
             continue
-        # A STRING alone on a logical line is a docstring or a stray literal;
-        # either way it is prose, not code that runs.
-        if (tok.type == tokenize.STRING
-                and prev_type in (tokenize.INDENT, tokenize.NEWLINE,
-                                  tokenize.NL, tokenize.DEDENT,
-                                  tokenize.ENCODING)):
-            prev_type, prev_end = tok.type, tok.end
+        if i in cuts:
+            keep = line[:cuts[i]].rstrip()
+            out.append(keep + ("\n" if line.endswith("\n") else ""))
             continue
-        if tok.start[0] == prev_end[0] and tok.start[1] > prev_end[1]:
-            out.append(" " * (tok.start[1] - prev_end[1]))
-        elif tok.start[0] > prev_end[0]:
-            out.append("\n" * (tok.start[0] - prev_end[0]))
-        out.append(tok.string)
-        prev_type, prev_end = tok.type, tok.end
+        out.append(line)
     return "".join(out)
 
 
@@ -193,7 +221,22 @@ def start(slug):
     brief = write_brief(slug)          # SELECT is not run here
     return subprocess.Popen(["x", brief])
 '''
+    MULTILINE = '''
+def g():
+    """A docstring naming SELECT."""
+    raise ValueError(
+        "no usable direction for any archetype")
+'''
     bad = []
+    mc = code_only(MULTILINE)
+    # The bug this cost a good patch: a line break inside brackets emits a
+    # newline token, and the old heuristic read the string after it as a
+    # docstring — deleting a message a check was looking for.
+    if "no usable direction for any archetype" not in mc:
+        bad.append("code_only swallowed a string on a continuation line")
+    if "A docstring naming SELECT" in mc:
+        bad.append("code_only kept a real docstring")
+
     code = code_only(FIXTURE)
     for ghost in ("--skill", "skill_runner.py", "SELECT", "title LIKE"):
         if ghost in code:
