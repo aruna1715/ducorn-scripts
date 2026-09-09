@@ -96,13 +96,33 @@ for f in (FLOW, LIB):
         sys.exit(f"NOTHING DONE — {f} is not there")
 
 sys.path.insert(0, str(DC / "scripts"))
-from patchlib import code_only, py_ok, PatchCheckFailed   # noqa: E402
+from patchlib import calls_in, code_only, py_ok, PatchCheckFailed  # noqa: E402
 
 src = FLOW.read_text(encoding="utf-8")
 print("patch_nova_jail\n")
 
-if "JailedFileReadTool(topic=topic),\n                   DuCornWriterTool" in src:
-    sys.exit("NOTHING DONE — NOVA is already jailed.")
+# ALREADY-APPLIED, SCOPED TO node_launch.
+#
+# The first version of this guard searched the whole file for
+#
+#     "JailedFileReadTool(topic=topic),\n                   DuCornWriterTool"
+#
+# and matched node_research's tool list, which has exactly that shape at line
+# 681. So it announced "NOTHING DONE — NOVA is already jailed", refused, and
+# left the breach open — a guard reporting success-by-idempotence for work it
+# never did, which is worse than a failed check because nobody looks again.
+#
+# Third file-wide check to misfire today. patchlib.calls_in exists precisely
+# for this and I used it in the verification below while hand-writing the
+# guard above it. A guard is a check.
+unjailed = calls_in(src, "node_launch", "FileReadTool")
+jailed = calls_in(src, "node_launch", "JailedFileReadTool")
+if jailed and not unjailed:
+    sys.exit("NOTHING DONE — node_launch already uses JailedFileReadTool.")
+if not unjailed:
+    sys.exit("NOTHING DONE — node_launch has no FileReadTool call at all. "
+             "Something else changed this node; read it before patching.")
+print(f"  ok  node_launch has {len(unjailed)} unjailed read tool(s) to fix")
 
 bad = False
 for label, a in [("NOVA's imports", OLD_IMPORT), ("NOVA's tools", OLD_TOOLS)]:
@@ -136,15 +156,22 @@ except PatchCheckFailed as e:
 
 # In CODE. The comments above quote the old spelling, and checks in this repo
 # have read their own prose four times.
+left = calls_in(after, "node_launch", "FileReadTool")
+if len(left) != 1 or "Jailed" not in left[0]:
+    sys.exit(f"⚠️  node_launch's read tool is {left or 'gone'} — restore the "
+             f"backup.")
+writers = calls_in(after, "node_launch", "DuCornWriterTool")
+if len(writers) != 1 or "topic=topic" not in writers[0]:
+    sys.exit(f"⚠️  node_launch's writer is {writers or 'gone'} — an untopiced "
+             f"DuCornWriterTool skips resolve_in_jail. Restore the backup.")
+# And nowhere ELSE in this file, since the sweep is the point.
 code = code_only(after)
 if "FileReadTool(base_dir=" in code:
-    sys.exit("⚠️  an unjailed FileReadTool is still in this file — restore "
-             "the backup.")
-if "DuCornWriterTool()" in code:
-    sys.exit("⚠️  an untopiced DuCornWriterTool is still in this file — "
+    sys.exit("⚠️  an unjailed FileReadTool remains somewhere in this file — "
              "restore the backup.")
-print("verified: it parses; no unjailed read tool and no untopiced writer "
-      "remain in code.")
+print(f"verified: node_launch reads via {left[0].split('(')[0]} and writes "
+      f"with a topic;\n          no unjailed read tool remains anywhere in "
+      f"the file.")
 
 print("""
   python3 scripts/prove_isolation.py
