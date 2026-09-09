@@ -188,6 +188,22 @@ if __name__ == "__main__":
               + "\n  ".join(bad))
         raise SystemExit(0 if not bad else 1)
 
+    # Resolving a REAL topic reaches product_epics, which needs psycopg2 —
+    # and `python3 scripts/product_dir.py <topic>` picks python3.14 on this
+    # Mac, which does not have it. bootstrap_python re-execs under one that
+    # does, exactly as product_pathways does for the same reason.
+    #
+    # DELIBERATELY here and nowhere else. ensure_modules RE-EXECS the
+    # process; at module level, any importer without psycopg2 would silently
+    # restart itself mid-skill. Resolving a directory must never be able to
+    # relaunch the pipeline. --test above needs none of this, because it
+    # stubs product_epics and touches no database.
+    try:
+        from bootstrap_python import ensure_modules
+        ensure_modules("psycopg2")
+    except ImportError:
+        pass
+
     for t in sys.argv[1:] or ["ducorn-admin-rebuild-p1-config"]:
         try:
             print(f"{t}\n  -> {for_topic(t)}\n  -> {rel_for_topic(t)}")
