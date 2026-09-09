@@ -74,6 +74,18 @@ def _sum(where: str) -> float:
         raise SpendUnknown(f"{type(e).__name__}: {e}") from e
 
 
+def total_spend() -> float:
+    """
+    Everything ever spent, as a running odometer.
+
+    Not interesting on its own — it exists to be subtracted. Read before and
+    after a skill, the difference is what that skill cost, which is the only
+    per-skill figure this stack can produce: LiteLLM_SpendLogs records spend
+    per API key, and the keys are per AGENT, not per run.
+    """
+    return _sum("1=1")
+
+
 def today_spend() -> float:
     """Everything spent since local midnight. Raises SpendUnknown."""
     return _sum(_TODAY)
