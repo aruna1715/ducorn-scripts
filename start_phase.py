@@ -156,7 +156,7 @@ def write_phase_brief(slug: str) -> Path:
 
 
 def start_next(epic_name: str, *, engine="gstack", coder="crewai",
-               complexity="medium") -> dict:
+               complexity="medium", environment="test") -> dict:
     """
     Start the next phase. Creates its pipeline_runs row, then launches the
     flow detached.
@@ -189,22 +189,37 @@ def start_next(epic_name: str, *, engine="gstack", coder="crewai",
                               "awaiting_approval"):
             raise NotStartable(f"the run for {slug} is already {row[0]}")
         if not row:
+            # TEST unless asked otherwise. _pin_local_for_test_runs reads
+            # this column and pins every agent to the local model when it
+            # says 'test' — same nodes, same gates, same jail, no bill.
+            #
+            # It used to be the literal 'production', so there was no way to
+            # exercise the plumbing cheaply. Every plumbing fault phase 1
+            # found would have surfaced the same way on local models.
+            if environment not in ("test", "production"):
+                raise NotStartable(
+                    f"environment must be 'test' or 'production', not "
+                    f"{environment!r}")
             cur.execute("""
                 INSERT INTO pipeline_runs
                     (slug, product_name, complexity, status, product_type,
                      has_ui, build_engine, coder, environment)
-                VALUES (%s, %s, %s, 'created', %s, %s, %s, %s, 'production')
+                VALUES (%s, %s, %s, 'created', %s, %s, %s, %s, %s)
             """, (slug,
                   f"{plan['epic']} — phase {plan['next']['seq']}: "
                   f"{plan['next']['title']}",
                   complexity, ptype, ptype in ("webpage", "software"),
-                  engine, coder))
+                  engine, coder, environment))
             c.commit()
 
     # The brief, BEFORE the launch. node_research reads docs/<slug>-PRD.md
     # as its first act and refuses an empty one; without this the run failed
     # in under two seconds, having created its row and its log.
     prd = write_phase_brief(slug)
+
+    print(f"🏷️  {slug} is a {environment.upper()} run"
+          + ("  — local models, nothing billed"
+             if environment == "test" else "  — PAID models"), flush=True)
 
     LOGS.mkdir(parents=True, exist_ok=True)
     log = LOGS / f"flow_{slug}.log"
@@ -217,6 +232,7 @@ def start_next(epic_name: str, *, engine="gstack", coder="crewai",
                                 cwd=str(DC / "ducorn"))
     return {"started": slug, "seq": plan["next"]["seq"],
             "title": plan["next"]["title"], "pid": proc.pid,
+            "environment": environment,
             "log": str(log), "brief": str(prd), "budget": budget["message"]}
 
 
@@ -230,6 +246,10 @@ def main():
     ap.add_argument("--coder", default="crewai", choices=["crewai", "cursor"])
     ap.add_argument("--complexity", default="medium",
                     choices=["simple", "medium", "complex"])
+    ap.add_argument("--environment", default="test",
+                    choices=["test", "production"],
+                    help="test pins every agent to the local model and costs "
+                         "nothing; production spends. Default: test.")
     a = ap.parse_args()
 
     sys.path.insert(0, str(DC / "scripts"))
@@ -337,7 +357,7 @@ tripped on. It does not prove the run succeeds; only starting it does.
     # starts" to be defined, and they would differ within a fortnight.
     try:
         r = start_next(a.epic, engine=a.engine, coder=a.coder,
-                       complexity=a.complexity)
+                       complexity=a.complexity, environment=a.environment)
     except NotStartable as e:
         die(str(e))
 
