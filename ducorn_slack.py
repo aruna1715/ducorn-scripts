@@ -47,6 +47,21 @@ from __future__ import annotations
 
 import os
 
+# shared/.env, here, at import.
+#
+# The first version read os.environ and nothing else, so
+# SLACK_BOARD_CHANNEL_ID was invisible to anything that had not already
+# loaded the env file — and `python3 scripts/ducorn_slack.py` reported "the
+# board channel could not be looked up" for a variable sitting in
+# shared/.env. langgraph_flow happens to call load_ducorn_env at import, so
+# the pipeline was fine and only the check was wrong, which is the worst way
+# for a check to be wrong.
+try:
+    from ducorn_env import load_ducorn_env as _load_env
+    _load_env()
+except Exception:
+    pass          # not on the path: the caller's environment is what there is
+
 __all__ = ["post", "post_images", "board_channel", "reason_for", "SlackNotReady"]
 
 BOARD_NAME = os.environ.get("SLACK_BOARD_CHANNEL", "#duc-board")
@@ -58,7 +73,17 @@ class SlackNotReady(RuntimeError):
 
 
 def _client():
-    from slack_sdk import WebClient
+    try:
+        from slack_sdk import WebClient
+    except ImportError:
+        # NOT a Slack problem, and it must not be reported as one. Running
+        # this under the system python3 said "the board channel could not be
+        # looked up (ModuleNotFoundError)" and advised setting a variable
+        # that was already set — a diagnosis pointing at the wrong thing
+        # costs more than no diagnosis.
+        raise SlackNotReady(
+            "slack_sdk is not installed in this interpreter — run it under "
+            "ducorn/.venv/bin/python, which is what the pipeline uses") from None
     token = os.environ.get("SLACK_BOT_TOKEN", "")
     if not token:
         raise SlackNotReady("SLACK_BOT_TOKEN is not set")
@@ -187,6 +212,25 @@ if __name__ == "__main__":
         if reason_for(SlackNotReady("SLACK_BOT_TOKEN is not set")) != \
                 "SLACK_BOT_TOKEN is not set":
             bad.append("a SlackNotReady sentence was rewritten")
+        # A missing library must not be reported as a Slack failure.
+        import builtins as _b
+        _real = _b.__import__
+
+        def _no_sdk(name, *a, **k):
+            if name == "slack_sdk":
+                raise ImportError("no slack_sdk")
+            return _real(name, *a, **k)
+        _b.__import__ = _no_sdk
+        try:
+            _client()
+            bad.append("a missing slack_sdk did not raise")
+        except SlackNotReady as ex:
+            if "slack_sdk is not installed" not in str(ex):
+                bad.append(f"a missing library is misreported as {ex!s}")
+        except Exception as ex:
+            bad.append(f"a missing library raised {type(ex).__name__}")
+        finally:
+            _b.__import__ = _real
         if not post_images([], "x").startswith("there were no images"):
             bad.append("an empty upload does not explain itself")
         print("ducorn_slack OK" if not bad else "ducorn_slack BAD\n  "
