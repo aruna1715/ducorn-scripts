@@ -15,6 +15,12 @@ from a frontier model to an 8B local one is a 20x quality drop dressed as
 success, and that is precisely how an unkeyed LiteLLM went unnoticed for weeks.
 """
 import os
+
+# Seconds a single upstream call may take. Must be >= the longest budget any
+# caller sets, or the router truncates a call the caller still considers live:
+# generate_design.RENDER_TIMEOUT is 900.
+_ROUTER_TIMEOUT = float(os.environ.get("DUCORN_ROUTER_TIMEOUT", "900"))
+
 import time
 
 import sys
@@ -155,7 +161,13 @@ async def chat(request: Request):
         # An empty bearer crashes httpx downstream and surfaces as a bare 500.
         headers.pop("authorization", None)
 
-    async with httpx.AsyncClient(timeout=300) as client:
+    # Long enough for the slowest thing that goes through it.
+    #
+    # This was 300s while generate_design allows a render 900s, so the router
+    # — the OUTER limit — was shorter than the budget it was carrying and the
+    # inner one could never be reached. Invisible with an 8B model answering
+    # in seconds; a guaranteed cut-off with a 32B model rendering a page.
+    async with httpx.AsyncClient(timeout=_ROUTER_TIMEOUT) as client:
         available = await serving_models(client, headers)
 
         if not requested:

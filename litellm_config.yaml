@@ -9,10 +9,10 @@ model_list:
       model: ollama/llama3.1
       api_base: http://localhost:11434
 
-#  - model_name: local-heavy
-#    litellm_params:
-#      model: ollama/qwen2.5:32b
-#      api_base: http://localhost:11434
+  - model_name: local-heavy
+    litellm_params:
+      model: ollama/qwen2.5:32b
+      api_base: http://localhost:11434
 
 #  - model_name: gemini-flash
 #    litellm_params:
