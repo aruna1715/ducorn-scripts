@@ -17,11 +17,34 @@ skill_runner knew that a QA rejection invalidates the build and the review
 
     ❌ Pipeline failed at build: Skill 06 — QA + Run Test failed (exit 1)
 
-and had no way to know that a plain resume would re-run only the failing
-skill against unchanged code and fail identically, forever.
+and had no way to know what would happen if they pressed RESUME.
 
-The knowledge existed and the operator could not get at it. That is the
-recurring shape of every defect in this stack this week.
+── A CORRECTION, KEPT BECAUSE IT MATTERS ────────────────────────────────────
+
+The first version of this module said a plain resume would re-run only the
+failing skill and loop forever. That was wrong, and it is worth writing down
+where the wrongness came from.
+
+skill_runner.prior_failure_context looks FORWARD from a skill for a later one
+that rejected it. When it finds a rejection, a cached pass is overridden and
+the skill re-runs with that report in hand:
+
+    if prior and prior.get("status") == "pass":
+        if _rejection:
+            print("♻️  passed, but a later skill rejected what it produced
+                   — re-running with that report in hand")   ← falls through
+        ...
+        else:
+            sys.exit(0)                                      ← only this replays
+
+FEEDBACK_SKILLS is {"04", "05"} — exactly the pair QA rejects. So RESUME
+alone already rebuilds and re-reviews after a QA failure. I read "pass" in
+the checkpoint, concluded the cache was in the way, and never checked whether
+something already handled it — which is the same mistake this file was
+written to help with.
+
+What was genuinely missing was never the mechanism. It was that nothing SAID
+any of this to the person reading the log.
 
 ── WHAT IT DECIDES, AND FROM WHAT ───────────────────────────────────────────
 
@@ -108,15 +131,25 @@ def plan(topic: str) -> dict:
         targets = set(sr.FEEDBACK_SKILLS)
         why = ("QA rejected the build. The builder must fix it and the "
                "reviewer must judge the fix, so both re-run.")
+        # AUTOMATICALLY, and this is the part I got wrong the first time.
+        #
+        # prior_failure_context looks FORWARD for a later skill that rejected
+        # this one. A cached pass is overridden when it finds one, so a
+        # resume already re-runs FEEDBACK_SKILLS with the QA report in hand —
+        # it does not replay their stored verdicts. Saying otherwise sent an
+        # operator to clear a cache that was never in the way.
+        auto = True
     elif "Review" in name:
         earlier = [k for k in ordered if k < key]
         targets = {earlier[-1].split("-", 1)[0]} if earlier else set()
         why = (f"{name} rejected what the step before it produced, so that "
                f"step re-runs.")
+        auto = earlier and earlier[-1].split("-", 1)[0] in sr.FEEDBACK_SKILLS
     else:
         targets = set()
         why = (f"{name} failed on its own work. Resuming re-runs it; nothing "
                f"else needs dropping.")
+        auto = False
 
     # Only what is actually cached as a pass. Invalidating a key that is not
     # there is a no-op that reads like an action.
@@ -124,14 +157,36 @@ def plan(topic: str) -> dict:
                         if any(k.startswith(f"{n}-") and
                                ck[k].get("status") == "pass" for k in ck))
 
+    # What RESUME does on its own, versus what needs clearing first.
+    #
+    # `auto` means skill_runner already overrides these cached passes because
+    # a later skill rejected them. Presenting them as something the operator
+    # must clear is how the first version of this sent people to do work the
+    # machine had already done.
+    auto_rerun = invalidate if auto else []
+    needs_clearing = [] if auto else invalidate
+
     steps = []
-    if invalidate:
+    if needs_clearing:
         steps.append(
             f"python3 ducorn/skill_runner.py --topic {topic} "
-            f"--invalidate {','.join(invalidate)}")
+            f"--invalidate {','.join(needs_clearing)}")
     steps.append(
         f'curl -sX POST localhost:8000/pipeline/resume/{topic} '
         f'-H "x-api-key: $DUCORN_API_TOKEN"')
+
+    if auto_rerun:
+        what = (f"{name} failed. Press RESUME — skills "
+                f"{', '.join(auto_rerun)} re-run automatically because a "
+                f"later skill rejected them, and the builder is handed that "
+                f"report. Nothing needs clearing first.")
+    elif needs_clearing:
+        what = (f"{name} failed. Skills {', '.join(needs_clearing)} are "
+                f"cached as passed and nothing will override them, so clear "
+                f"them before resuming — and not {num}, whose failure record "
+                f"is what the retry is told about.")
+    else:
+        what = f"{name} failed. Press RESUME — it re-runs; nothing is in the way."
 
     return {
         "topic": topic,
@@ -140,17 +195,13 @@ def plan(topic: str) -> dict:
                    "verdict": entry.get("verdict", ""),
                    "at": entry.get("ts", "")},
         "passed": passed,
-        "invalidate": invalidate,
+        # What the button offers. Empty when RESUME is the whole answer, so
+        # the dashboard shows no button rather than an unnecessary one.
+        "invalidate": needs_clearing,
+        "auto_rerun": auto_rerun,
         "keep": [num],
         "why": why,
-        "what": (
-            f"{name} failed. "
-            + (f"Skills {', '.join(invalidate)} are cached as passed, so a "
-               f"plain resume would re-run only {num} against unchanged work "
-               f"and fail the same way. Drop them first — and NOT {num}, "
-               f"whose failure record is what the retry is told about."
-               if invalidate else
-               "A resume re-runs it; nothing is cached in the way.")),
+        "what": what,
         "steps": steps,
     }
 
@@ -185,10 +236,14 @@ def as_text(p: dict) -> str:
     ]
     for i, s in enumerate(p["steps"], 1):
         out.append(f"  {i}. {s}")
-    out += ["",
-            "  Or press RECOVER on this run in the dashboard, which does the "
-            "same thing.",
-            "─" * 70]
+    if p.get("invalidate"):
+        out += ["",
+                "  Or press RECOVER on this run in the dashboard, then "
+                "RESUME."]
+    else:
+        out += ["", "  RESUME is on the run in the dashboard. No terminal "
+                    "needed."]
+    out.append("─" * 70)
     return "\n".join(out)
 
 
