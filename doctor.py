@@ -100,6 +100,34 @@ def run(cmd, **kw):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# How long a launchd service gets to appear before it is called down.
+#
+# doctor used to look once. Run six seconds after a `launchctl kickstart`, it
+# reported LiteLLM as not listening while LiteLLM was starting — during the
+# one check that was verifying a change to that service's plist. A check that
+# is wrong exactly when you are watching it is worse than no check.
+_SERVICE_WAIT = 12
+
+
+def _service_up(port: int, wait: int = None) -> bool:
+    """
+    Is something listening, given a moment to start.
+
+    ONE measurement, reused for the verdict and the message. The caller used
+    to call port_open twice, so a service that came up between the two calls
+    would print "ok" beside "not listening".
+    """
+    import time as _t
+    wait = _SERVICE_WAIT if wait is None else wait
+    deadline = _t.monotonic() + wait
+    while True:
+        if port_open(port):
+            return True
+        if _t.monotonic() >= deadline:
+            return False
+        _t.sleep(1)
+
+
 def check_services():
     heading("services")
     for name, port, fix in [
@@ -109,8 +137,9 @@ def check_services():
         ("Ollama", 11434, "launchctl kickstart -k gui/$(id -u)/com.ducorn.ollama"),
         ("PDF service", 8001, "launchctl kickstart -k gui/$(id -u)/com.ducorn.pdf"),
     ]:
-        check("services", f"{name} on :{port}", port_open(port),
-              "" if port_open(port) else "not listening", fix)
+        up = _service_up(port)
+        check("services", f"{name} on :{port}", up,
+              "" if up else f"not listening after {_SERVICE_WAIT}s", fix)
 
 
 def check_databases():
