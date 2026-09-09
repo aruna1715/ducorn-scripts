@@ -45,7 +45,7 @@ import ast
 import io
 import tokenize
 
-__all__ = ["code_only", "assert_order", "calls_in", "py_ok",
+__all__ = ["code_only", "assert_order", "calls_in", "ifs_in", "py_ok",
            "PatchCheckFailed"]
 
 
@@ -157,6 +157,30 @@ def calls_in(src: str, func: str | None, name: str) -> list:
     return found
 
 
+def ifs_in(src: str, func: str | None, contains: str) -> list:
+    """
+    Every `if` inside `func` whose TEST mentions `contains`, as
+    [(line, has_else)]. func=None means the whole module.
+
+    For branch structure — which statement an `else` hangs off. No text
+    search can see that: the broken and the fixed spelling contain the same
+    lines in the same order, and only the tree differs.
+
+    Scoped, for the reason calls_in is scoped. A check that walked the whole
+    module for `if skill_num == BUILD_SKILL` found two — the one being fixed
+    and an unrelated one seven hundred lines earlier — and reported a correct
+    patch as broken. That was the second file-wide count to do that in one
+    session, the first being the reason calls_in exists.
+    """
+    tree = py_ok(src, func or "the module")
+    scope = _func(tree, func) if func else tree
+    out = []
+    for node in ast.walk(scope):
+        if isinstance(node, ast.If) and contains in ast.dump(node.test):
+            out.append((node.lineno, bool(node.orelse)))
+    return sorted(out)
+
+
 if __name__ == "__main__":
     FIXTURE = '''
 """A module docstring mentioning --skill and SELECT and title LIKE."""
@@ -218,6 +242,33 @@ def start(t):
         bad.append("calls_in missed a call at module scope")
     if 'mark(t, "failed", "skill")' not in calls_in(COUNTED, "other", "mark")[0]:
         bad.append("calls_in did not return the call source")
+
+    BRANCHED = '''
+def elsewhere(n):
+    if n == LIMIT:
+        pass
+
+
+def target(n, body):
+    if len(body) >= 200:
+        ok = True
+    else:
+        ok = False
+    if n == LIMIT and ok:
+        ok = check()
+    return ok
+'''
+    scoped = ifs_in(BRANCHED, "target", "LIMIT")
+    if len(scoped) != 1:
+        bad.append(f"ifs_in saw {len(scoped)} LIMIT tests in target, not 1 "
+                   f"— it is counting the whole module again")
+    if scoped and scoped[0][1]:
+        bad.append("ifs_in reported an else the target does not have")
+    if len(ifs_in(BRANCHED, None, "LIMIT")) != 2:
+        bad.append("ifs_in missed a module-scope branch")
+    length = ifs_in(BRANCHED, "target", "200")
+    if not (len(length) == 1 and length[0][1]):
+        bad.append("ifs_in did not see the length test's else")
 
     print("patchlib OK" if not bad else "patchlib BAD\n  " + "\n  ".join(bad))
     raise SystemExit(0 if not bad else 1)
