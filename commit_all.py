@@ -69,6 +69,63 @@ SECRET = re.compile(
     r"[^/]*\.(json|ya?ml|txt|env)$", re.I)
 
 
+# A .env-family name says where to look, not what is there. The risk is
+# VALUES.
+#
+# `(^|/)\.env($|\.)` matches .env.example too, so this refused the
+# environment reference every product is required to ship — the one
+# DuCornDeployTool.resolve_product_env reads, and that doctor checks. The
+# advice printed with the refusal was to gitignore it, which would have
+# broken the deploy path.
+ENVISH = re.compile(r"(^|/)\.env($|\.)", re.I)
+
+
+def _assigned_keys(repo, f):
+    """
+    Keys given a non-empty value in a .env-family file.
+
+    [] means it is a template and may be committed. A file that cannot be
+    read returns a sentinel: being unable to prove a file is safe is not the
+    same as proving it is.
+    """
+    try:
+        text = (DC / repo / f).read_text(errors="replace")
+    except OSError:
+        return ["<unreadable>"]
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, _, v = s.partition("=")
+        if v.strip().strip('"').strip("'"):
+            out.append(k.strip())
+    return out
+
+
+def blocking(repo, files):
+    """
+    (blocked, templates, why) for a list of paths.
+
+    One function, both call sites — the list before staging and the re-check
+    after it. The post-stage one is the check that matters, because
+    .gitignore decides what actually lands, and a second copy of this rule
+    would be the one that drifts.
+    """
+    blocked, templates, why = [], [], {}
+    for f in files:
+        if not SECRET.search(f):
+            continue
+        if ENVISH.search(f):
+            keys = _assigned_keys(repo, f)
+            if not keys:
+                templates.append(f)
+                continue
+            why[f] = f"{len(keys)} key(s) carry values: {', '.join(keys[:4])}"
+        blocked.append(f)
+    return blocked, templates, why
+
+
 def git(repo, *args, check=False):
     return subprocess.run(["git", "-C", str(DC / repo), *args],
                           capture_output=True, text=True, check=check)
@@ -118,12 +175,15 @@ def main():
 
         # git status --porcelain: XY <path>, and renames carry ' -> '
         files = [line[3:].split(" -> ")[-1].strip().strip('"') for line in status]
-        secrets = [f for f in files if SECRET.search(f)]
+        secrets, templates, why = blocking(repo, files)
+        for f in templates:
+            print(f"  📄 {f} — a template, no values assigned; committing it")
         if secrets:
             blocked.append((repo, secrets))
             print(f"  ⛔ REFUSING — these look like secrets:")
             for f in secrets:
-                print(f"       {f}")
+                print(f"       {f}"
+                      + (f"  ({why[f]})" if f in why else ""))
             print("     Add them to .gitignore, then run this again.")
             continue
 
@@ -151,7 +211,7 @@ def main():
         # Re-check AFTER staging: .gitignore decides what actually lands, and
         # what git stages is the only list that matters.
         staged = git(repo, "diff", "--cached", "--name-only").stdout.split()
-        late = [f for f in staged if SECRET.search(f)]
+        late, _tpl, _why = blocking(repo, staged)
         if late:
             git(repo, "reset")
             blocked.append((repo, late))
