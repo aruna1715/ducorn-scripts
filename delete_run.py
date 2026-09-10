@@ -97,6 +97,46 @@ def owns(filename, slug, others):
     return True
 
 
+def resolve_product_dir(slug):
+    """
+    Where this run actually builds, or None if it cannot be determined.
+
+    Never `PRODUCTS / "products" / slug`. That is true only when a slug
+    equals a product name, and under the epic layout a phase slug does not:
+    zz-plumbing-check-p1-status builds into products/zz-plumbing-check. The
+    derived path pointed at nothing, so the files survived a delete that
+    cleared the database — and the next build had nothing left to write.
+
+    None is returned rather than a guess. Clearing state while leaving files
+    is the failure being fixed; doing it because a resolver was unavailable
+    would be the same failure with a different cause.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from product_dir import for_topic
+        return Path(for_topic(slug)).resolve()
+    except Exception as e:
+        print(f"⚠️  cannot resolve the product directory for {slug!r}: {e}")
+        return None
+
+
+def shares_product_dir(slug, others, prod_dir):
+    """
+    Other runs that build into the same directory — an epic's other phases.
+
+    Found from pipeline_runs, the way this file finds everything else, so the
+    answer comes from what exists rather than from a naming convention.
+    """
+    out = []
+    for other in others:
+        if other == slug:
+            continue
+        d = resolve_product_dir(other)
+        if d is not None and d == prod_dir:
+            out.append(other)
+    return sorted(out)
+
+
 def find_processes(slug):
     """PIDs of langgraph_flow.py running THIS slug."""
     try:
@@ -122,8 +162,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("slug")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--shared-product", action="store_true",
+                    help="also remove a build directory shared with other "
+                         "phases of the same epic. Their files go too.")
     args = ap.parse_args()
     slug, apply = args.slug, args.apply
+    shared_ok = args.shared_product
 
     if not slug or "/" in slug or slug.startswith("."):
         sys.exit(f"Refusing to act on slug {slug!r}")
@@ -229,9 +273,19 @@ def main():
             for p in sorted(d.iterdir()):
                 if p.is_file() and owns(p.name, slug, others):
                     moves.append(p)
-    product_dir = PRODUCTS / "products" / slug
-    if product_dir.is_dir():
-        moves.append(product_dir)
+    prod_dir = resolve_product_dir(slug)
+    if prod_dir is None:
+        print("    products/ left untouched — clearing state without the "
+              "files is what makes a rebuilt run fail for changing nothing.")
+    elif prod_dir.is_dir():
+        siblings = shares_product_dir(slug, others, prod_dir)
+        if siblings and not shared_ok:
+            print(f"\n⚠️  {prod_dir.name}/ is an epic build directory shared "
+                  f"with {len(siblings)} other run(s): {', '.join(siblings)}")
+            print("    Left in place. --shared-product removes it anyway, "
+                  "and takes their files with it.")
+        else:
+            moves.append(prod_dir)
     log = ROOT / "logs" / f"flow_{slug}.log"
     if log.is_file():
         moves.append(log)

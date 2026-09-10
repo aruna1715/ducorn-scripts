@@ -437,8 +437,59 @@ def router_outlasts_what_it_carries():
     return f"router {router}s >= render {render}s"
 
 
-@check("eleven sites derived products/<topic>/ independently, and they "
-       "disagreed once the epic layout arrived")
+TOPICISH = {"topic", "slug"}
+
+
+def _names_products(node) -> bool:
+    """Does this path segment name the products root?"""
+    if isinstance(node, ast.Name):
+        return "PRODUCT" in node.id.upper()
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value.strip("/") == "products"
+    return False
+
+
+def _derives_product_dir(node) -> bool:
+    """
+    Is this expression building a product directory out of the topic?
+
+    Two spellings, because the first version of this check only knew one —
+    `Path(f"…products/{topic}")` — and reported a single offender while three
+    real ones sat in pathlib joins. A check that reports green on a broken
+    invariant is worse than no check.
+
+    The topic must be the segment IMMEDIATELY after the products root.
+    `PRODUCTS_DIR / ".superseded" / topic` is a different directory that
+    happens to be keyed by topic, and flagging it would train the reader to
+    ignore this.
+    """
+    # PRODUCTS / "products" / slug   |   PRODUCTS_ROOT / topic
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        right = node.right
+        if isinstance(right, ast.Name) and right.id in TOPICISH:
+            left = node.left
+            prev = (left.right if isinstance(left, ast.BinOp)
+                    and isinstance(left.op, ast.Div) else left)
+            return _names_products(prev)
+        return False
+    # Path(f"…products/{topic}…")
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "Path" and node.args
+            and isinstance(node.args[0], ast.JoinedStr)):
+        arg = node.args[0]
+        text = "".join(v.value for v in arg.values
+                       if isinstance(v, ast.Constant)
+                       and isinstance(v.value, str))
+        names = {n.id for v in arg.values
+                 if isinstance(v, ast.FormattedValue)
+                 for n in ast.walk(v.value) if isinstance(n, ast.Name)}
+        return "products/" in text and bool(names & TOPICISH)
+    return False
+
+
+@check("sites derived products/<topic>/ independently, and they disagreed "
+       "once the epic layout arrived — a phase builds into its EPIC's "
+       "directory, not one named after itself")
 def one_resolver_for_the_product_dir():
     if not PRODUCT_DIR.is_file():
         raise Fail("scripts/product_dir.py is gone — the single resolver")
@@ -449,8 +500,11 @@ def one_resolver_for_the_product_dir():
             continue
         for p in sorted(root.rglob("*.py")):
             rel = p.relative_to(DC).as_posix()
+            # product_dir.py and product_epics.py ARE the resolver — build_dir
+            # is where the epic rule legitimately lives. Tests use invented
+            # slugs; patch scripts quote code as data.
             if (".venv" in rel or "/applied/" in rel or ".backup-" in rel
-                    or rel.endswith("product_dir.py")
+                    or p.name in ("product_dir.py", "product_epics.py")
                     or "test_" in p.name or p.name.startswith("patch_")):
                 continue
             try:
@@ -458,23 +512,7 @@ def one_resolver_for_the_product_dir():
             except SyntaxError:
                 continue
             for node in ast.walk(t):
-                # Path(f"...products/{topic}...") — a path BUILT from the
-                # topic. A prompt string that merely mentions the directory
-                # is not path construction and must not be flagged.
-                if not (isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Name)
-                        and node.func.id == "Path" and node.args):
-                    continue
-                arg = node.args[0]
-                if not isinstance(arg, ast.JoinedStr):
-                    continue
-                text = "".join(v.value for v in arg.values
-                               if isinstance(v, ast.Constant)
-                               and isinstance(v.value, str))
-                names = {n.id for v in arg.values
-                         if isinstance(v, ast.FormattedValue)
-                         for n in ast.walk(v.value) if isinstance(n, ast.Name)}
-                if "products/" in text and "topic" in names:
+                if _derives_product_dir(node):
                     offenders.append(f"{rel}:{node.lineno}")
     if offenders:
         raise Fail("a product path is built from the topic instead of asking "

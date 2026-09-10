@@ -27,11 +27,20 @@ appears at the first paid call rather than at the moment the model was added.
 
 ── THE RULE ─────────────────────────────────────────────────────────────────
 
-A key's model list is DERIVED from the config, not maintained beside it. Run
-this after any change to litellm_config.yaml and the two cannot drift.
+GRANT what you name. Never "everything to everyone".
 
-Budgets stay per-key and untouched: they are the real control, they differ on
-purpose, and nothing here reads or writes them.
+The first version of this set every key to the full served list, which would
+have been a real regression: CLEO and ECHO are deliberately scoped WITHOUT
+claude-sonnet — they are the cheap agents, pinned to local-fast, and their
+keys are the boundary that stops anything reaching a paid model on their
+behalf. Flattening that is the same error litellm_budget.py refuses by
+design: "Refusing to change all nine keys at once — their budgets differ on
+purpose."
+
+So a grant is explicit and additive. Existing entries are kept.
+
+Budgets are untouched: they are the other control, they differ on purpose,
+and nothing here reads or writes them.
 
 ── WHAT IT WILL NOT DO ──────────────────────────────────────────────────────
 
@@ -106,6 +115,11 @@ def agent_keys() -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--grant", action="append", default=[], metavar="MODEL",
+                    help="add this model to every restricted key, keeping "
+                         "what each already has. Repeatable.")
+    ap.add_argument("--key", action="append", default=[], metavar="AGENT",
+                    help="limit the grant to these agents, e.g. --key SAGE")
     a = ap.parse_args()
 
     try:
@@ -133,12 +147,13 @@ def main() -> int:
     if not keys:
         raise SystemExit("no LITELLM_KEY_* variables in the environment.")
 
-    drift = {}
+    drift, restricted = {}, {}
     for name in sorted(keys):
         value = keys[name]
         info = api(f"/key/info?key={value}", master).get("info", {}) or {}
         have = info.get("models") or []
         missing = [m for m in want if m not in have] if have else []
+        restricted[name] = (value, have)
         # An EMPTY list in LiteLLM means "no restriction" — every model. That
         # is a valid, and arguably better, state: budgets are the control.
         state = ("no restriction — every model" if not have
@@ -152,36 +167,83 @@ def main() -> int:
         print("\nNothing to do — every key can reach every served model.")
         return 0
 
-    print(f"\n{len(drift)} key(s) cannot reach models the config serves. "
-          f"That is why a run can fail on a model the switcher offers.")
+    print(f"\n{len(drift)} key(s) cannot reach every served model. Some of "
+          f"that is deliberate:\n"
+          f"  a key WITHOUT claude-sonnet is a cost boundary, not drift.\n"
+          f"Grant only what you mean.")
 
+    if not a.grant:
+        print("""
+Nothing written. Name the models to grant:
+
+  python3 scripts/litellm_models.py --grant local-heavy --apply
+
+local-heavy is free, so granting it to every agent costs nothing and is what
+a TEST run needs. Granting a paid model is a spending decision — make it one
+key at a time:
+
+  python3 scripts/litellm_models.py --grant claude-opus --key DESIGN --apply
+""")
+        return 0
+
+    unknown = [m for m in a.grant if m not in want]
+    if unknown:
+        raise SystemExit(f"\n{unknown} is not served by litellm_config.yaml. "
+                         f"Serving it comes first, or the grant points at "
+                         f"nothing.")
+
+    only = {f"LITELLM_KEY_{k.strip().upper()}" for k in a.key}
+    targets = {n: v for n, v in restricted.items()
+               if v[1] and (not only or n in only)}
+    if only:
+        missing_names = only - set(restricted)
+        if missing_names:
+            raise SystemExit(f"\nno such key(s) in the environment: "
+                             f"{sorted(missing_names)}")
+    if not targets:
+        print("\nNo restricted key matches — unrestricted keys already allow "
+              "everything.")
+        return 0
+
+    print(f"\ngranting {a.grant} to {len(targets)} key(s), keeping what each "
+          f"already has")
     if not a.apply:
+        for n, (_v, have) in sorted(targets.items()):
+            add = [m for m in a.grant if m not in have]
+            print(f"  {n:<24} {len(have)} → {len(have) + len(add)}"
+                  + (f"  (+{add})" if add else "  (already has them)"))
         print("\nNothing written. Re-run with --apply.")
         return 0
 
     failed = []
-    for name, (value, missing) in drift.items():
-        api("/key/update", master, {"key": value, "models": want})
-        # Read it back. A 200 from an update is not evidence the value stuck —
-        # litellm_budget.py learned that about budgets and it is just as true
-        # here.
+    for name, (value, have) in sorted(targets.items()):
+        add = [m for m in a.grant if m not in have]
+        if not add:
+            print(f"  {name:<24} already has them")
+            continue
+        merged = have + add
+        api("/key/update", master, {"key": value, "models": merged})
+        # Read it back. A 200 from an update is not evidence the value stuck.
         back = api(f"/key/info?key={value}", master).get("info", {}) or {}
         now = back.get("models") or []
-        still = [m for m in want if m not in now] if now else []
-        if still:
-            failed.append(f"{name}: still missing {still}")
-            print(f"  {name:<24} FAILED — still missing {still}")
+        still = [m for m in add if m not in now]
+        # And the boundary must survive: nothing this grants may ADD a model
+        # the operator did not name.
+        crept = [m for m in now if m not in merged]
+        if still or crept:
+            failed.append(f"{name}: missing {still} unexpected {crept}")
+            print(f"  {name:<24} FAILED — missing {still} unexpected {crept}")
         else:
-            print(f"  {name:<24} now allows all {len(want)}")
+            print(f"  {name:<24} +{add}  ({len(now)} allowed)")
 
     if failed:
         raise SystemExit("\n" + "\n".join(failed))
 
     print("""
-Every agent key can now reach every model the config serves.
+Granted. Each key keeps the models it had; only what you named was added.
 
-Re-run this after any change to litellm_config.yaml — the key lists are
-derived from it, so the two only drift if nobody asks.""")
+Re-run the read-only view after any change to litellm_config.yaml — a model
+added there is invisible to every restricted key until it is granted.""")
     return 0
 
 
